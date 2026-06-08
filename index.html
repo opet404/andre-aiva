@@ -5407,14 +5407,15 @@ function startNameCanvas(){
 </script>
 <script>
 /* ============================================================
-   AIVA MUSIC PLAYER v4
-   Data  : Deezer API langsung dari browser (CORS enabled, no key)
-   Audio : YouTube IFrame API (full audio, no key)
-   YT ID : Scrape via allorigins proxy (no key)
-   UX    : Trending hilang saat search, muncul lagi setelah clear
+   AIVA MUSIC PLAYER v5
+   Data  : iTunes Search API (CORS ok, no key, gratis)
+           → cover 600px, title, artist, album, duration
+   Audio : YouTube IFrame (full, no key)
+   YT ID : Invidious public API (CORS ok, no key)
+           fallback: cari manual via youtube embed
    ============================================================ */
 
-/* Inject hidden YouTube iframe */
+/* Hidden YouTube iframe */
 (function(){
   var d=document.createElement('div');
   d.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;bottom:0;left:0';
@@ -5435,64 +5436,97 @@ var S={
   playing:false,
   ytReady:false,yt:null,
   trendDone:false,
-  mode:'home', /* 'home' or 'search' */
+  mode:'home',
 };
 
-var DZ='https://api.deezer.com';
+/* Invidious instances - CORS enabled, no key */
+var INV_INSTANCES=[
+  'https://invidious.kavin.rocks',
+  'https://inv.riverside.rocks',
+  'https://invidious.nerdvpn.de',
+  'https://yt.artemislena.eu',
+  'https://invidious.privacydev.net',
+];
+var invIdx=0;
+
 var FB="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' rx='16' fill='%231e1e3a'/%3E%3Ccircle cx='40' cy='34' r='16' fill='%232d2d55'/%3E%3Ccircle cx='40' cy='34' r='6' fill='%231e1e3a'/%3E%3Crect x='18' y='54' width='44' height='30' rx='22' fill='%232d2d55'/%3E%3C/svg%3E";
 
 function $i(id){return document.getElementById(id);}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function fmt(s){if(!s||isNaN(s))return'0:00';var m=Math.floor(s/60),sec=Math.floor(s%60);return m+':'+(sec<10?'0':'')+sec;}
 
-/* ── Deezer: works directly from browser, no key needed ── */
-async function dz(path){
-  var r=await fetch(DZ+path);
-  if(!r.ok) throw new Error('Deezer '+r.status);
+/* ── iTunes Search API (100% CORS enabled dari browser) ── */
+async function itunesSearch(q, limit){
+  limit = limit||25;
+  var url='https://itunes.apple.com/search?term='+encodeURIComponent(q)
+    +'&entity=song&limit='+limit+'&country=US';
+  var r=await fetch(url,{signal:AbortSignal.timeout(10000)});
+  if(!r.ok) throw new Error('iTunes '+r.status);
   return r.json();
 }
 
-function norm(t){
+async function itunesTop(limit){
+  /* iTunes RSS top songs — no key needed */
+  limit=limit||25;
+  var url='https://itunes.apple.com/us/rss/topsongs/limit='+limit+'/json';
+  var r=await fetch(url,{signal:AbortSignal.timeout(10000)});
+  if(!r.ok) throw new Error('iTunes RSS '+r.status);
+  return r.json();
+}
+
+function normItunes(t){
+  /* cover: replace 100x100 → 600x600 */
+  var cover=(t.artworkUrl100||t.artworkUrl60||'').replace('100x100','600x600').replace('60x60','600x600');
   return{
-    id:t.id,
-    title:t.title||'Unknown',
-    artist:(t.artist&&t.artist.name)?t.artist.name:'Unknown',
-    album:(t.album&&t.album.title)||'',
-    cover:(t.album&&(t.album.cover_medium||t.album.cover_big||t.album.cover))||'',
-    duration:t.duration||0,
+    id:String(t.trackId||Math.random()),
+    title:t.trackName||'Unknown',
+    artist:t.artistName||'Unknown',
+    album:t.collectionName||'',
+    cover:cover,
+    duration:Math.round((t.trackTimeMillis||0)/1000),
     ytId:null,
   };
 }
 
-/* ── YouTube ID via allorigins proxy (no key, scrape ytInitialData) ── */
-async function getYtId(query){
-  try{
-    var q=encodeURIComponent(query+' official audio');
-    var ytUrl='https://www.youtube.com/results?search_query='+q;
-    var proxyUrl='https://api.allorigins.win/raw?url='+encodeURIComponent(ytUrl);
-    var r=await fetch(proxyUrl,{signal:AbortSignal.timeout(8000)});
-    var html=await r.text();
-    /* extract first videoId from ytInitialData */
-    var m=html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
-    return m?m[1]:null;
-  }catch(e){return null;}
+function normItunesRSS(entry){
+  var img=(entry['im:image']&&entry['im:image'][2])?entry['im:image'][2].label:'';
+  return{
+    id:String(Math.random()),
+    title:(entry['im:name']&&entry['im:name'].label)||'Unknown',
+    artist:(entry['im:artist']&&entry['im:artist'].label)||'Unknown',
+    album:(entry['im:collection']&&entry['im:collection']['im:name']&&entry['im:collection']['im:name'].label)||'',
+    cover:img.replace('170x170','600x600'),
+    duration:0,
+    ytId:null,
+  };
 }
 
-/* Enrich tracks with YouTube IDs in parallel */
+/* ── YouTube ID via Invidious (CORS ok, no key) ── */
+async function getYtId(query){
+  for(var attempt=0; attempt<INV_INSTANCES.length; attempt++){
+    var base=INV_INSTANCES[(invIdx+attempt)%INV_INSTANCES.length];
+    try{
+      var url=base+'/api/v1/search?q='+encodeURIComponent(query+' official audio')
+        +'&type=video&page=1&fields=videoId,title';
+      var r=await fetch(url,{signal:AbortSignal.timeout(6000)});
+      if(!r.ok) continue;
+      var data=await r.json();
+      if(Array.isArray(data)&&data[0]&&data[0].videoId){
+        invIdx=(invIdx+attempt)%INV_INSTANCES.length; /* stick to working instance */
+        return data[0].videoId;
+      }
+    }catch(e){continue;}
+  }
+  return null;
+}
+
 async function enrich(tracks,limit){
   limit=limit||15;
   var slice=tracks.slice(0,limit);
-  await Promise.allSettled(slice.map(async function(t,idx){
-    if(t.ytId) return;
-    var id=await getYtId(t.artist+' '+t.title);
-    t.ytId=id;
-    /* re-render progress as each one resolves */
-    updTrackYtBadge(t,idx);
+  await Promise.allSettled(slice.map(async function(t){
+    if(t.ytId)return;
+    t.ytId=await getYtId(t.artist+' '+t.title);
   }));
-}
-
-function updTrackYtBadge(t,idx){
-  /* nothing visual needed — plays automatically when ytId resolves */
 }
 
 /* ── YouTube IFrame ── */
@@ -5503,19 +5537,14 @@ window.onYouTubeIframeAPIReady=function(){
     events:{
       onReady:function(){S.ytReady=true;},
       onStateChange:function(e){
-        if(e.data===YT.PlayerState.PLAYING){S.playing=true;updAllUI();startTick();}
-        else if(e.data===YT.PlayerState.PAUSED){S.playing=false;updAllUI();stopTick();}
-        else if(e.data===YT.PlayerState.ENDED){
-          stopTick();
-          S.playing=false;
-          if(S.repeat){S.yt.playVideo();}else{musicNext();}
+        if(e.data===1){S.playing=true;updAllUI();startTick();}
+        else if(e.data===2){S.playing=false;updAllUI();stopTick();}
+        else if(e.data===0){
+          stopTick();S.playing=false;
+          S.repeat?S.yt.playVideo():musicNext();
         }
       },
-      onError:function(){
-        var ar=$i('mpbArtist');
-        if(ar)ar.textContent='Tidak tersedia, skip...';
-        setTimeout(musicNext,1200);
-      }
+      onError:function(){setTimeout(musicNext,1000);}
     }
   });
 };
@@ -5535,25 +5564,42 @@ function startTick(){
 }
 function stopTick(){clearInterval(_tick);}
 
-/* ── Trending ── */
+/* ── Trending: iTunes Top Songs ── */
 async function loadTrendingAndCharts(){
   if(S.trendDone)return;
   try{
-    var d=await dz('/chart/0/tracks?limit=30');
-    var tracks=(d.data||[]).map(norm);
+    /* Show loading skeleton while fetching */
+    var d=await itunesTop(25);
+    var entries=(d.feed&&d.feed.entry)||[];
+    var tracks=entries.map(normItunesRSS);
+    if(!tracks.length) throw new Error('empty');
     S.homeQ=tracks;
     S.trendDone=true;
     renderTrending(tracks.slice(0,8));
-    renderCharts(tracks.slice(0,15));
+    renderCharts(tracks.slice(0,20));
+    /* Enrich YouTube IDs in background */
     enrich(tracks,20).then(function(){
       if(S.mode==='home'){
         renderTrending(S.homeQ.slice(0,8));
-        renderCharts(S.homeQ.slice(0,15));
+        renderCharts(S.homeQ.slice(0,20));
       }
     });
   }catch(e){
-    var w=$i('mpTrendingWrap');
-    if(w)w.innerHTML='<div class="mp-empty">Gagal memuat. Cek koneksi internet.</div>';
+    /* fallback: search "top hits 2024" */
+    try{
+      var d2=await itunesSearch('top hits 2025',25);
+      var tracks2=(d2.results||[]).filter(function(t){return t.wrapperType==='track';}).map(normItunes);
+      S.homeQ=tracks2;
+      S.trendDone=true;
+      renderTrending(tracks2.slice(0,8));
+      renderCharts(tracks2.slice(0,20));
+      enrich(tracks2,20).then(function(){
+        if(S.mode==='home'){renderTrending(S.homeQ.slice(0,8));renderCharts(S.homeQ.slice(0,20));}
+      });
+    }catch(e2){
+      var w=$i('mpTrendingWrap');
+      if(w)w.innerHTML='<div class="mp-empty">Gagal memuat. Cek koneksi.</div>';
+    }
   }
 }
 
@@ -5591,13 +5637,12 @@ function renderCharts(tracks){
   }).join('');
 }
 
-/* ── Search — trending disembunyikan, muncul lagi saat clear ── */
+/* ── Search ── */
 window.musicSearch=async function(){
   var inp=$i('mpSearchInput');
   var q=inp?inp.value.trim():'';
   if(!q)return;
 
-  /* Sembunyikan trending & charts section */
   S.mode='search';
   setTrendingVisible(false);
 
@@ -5612,8 +5657,8 @@ window.musicSearch=async function(){
   if(clr)clr.style.display='flex';
 
   try{
-    var d=await dz('/search?q='+encodeURIComponent(q)+'&limit=30');
-    var tracks=(d.data||[]).map(norm);
+    var d=await itunesSearch(q,30);
+    var tracks=(d.results||[]).filter(function(t){return t.wrapperType==='track';}).map(normItunes);
     if(!tracks.length){
       if(list)list.innerHTML='<div class="mp-empty">Tidak ada hasil untuk "'+esc(q)+'"</div>';
       if(btn){btn.textContent='Cari';btn.disabled=false;}
@@ -5623,7 +5668,6 @@ window.musicSearch=async function(){
     renderSearchList(tracks,q);
     if(btn){btn.textContent='Cari';btn.disabled=false;}
     var body=$i('mpBody');if(body)body.scrollTop=0;
-    /* enrich YouTube IDs in background */
     enrich(tracks,20);
   }catch(e){
     if(list)list.innerHTML='<div class="mp-empty">Gagal terhubung. Cek koneksi.</div>';
@@ -5650,7 +5694,6 @@ function renderSearchList(tracks,q){
   list.innerHTML=label+items;
 }
 
-/* Clear search → sembunyikan hasil, munculkan trending kembali */
 window.musicClearSearch=function(){
   var inp=$i('mpSearchInput');
   var sec=$i('mpSearchSection');
@@ -5663,15 +5706,8 @@ window.musicClearSearch=function(){
 };
 
 function setTrendingVisible(show){
-  var sections=[
-    $i('mpTrendingLabel'),
-    $i('mpTrendingWrap'),
-    $i('mpChartsLabel'),
-    $i('mpChartsWrap'),
-  ];
-  sections.forEach(function(el){
-    if(el)el.style.display=show?'':'none';
-  });
+  [$i('mpTrendingLabel'),$i('mpTrendingWrap'),$i('mpChartsLabel'),$i('mpChartsWrap')]
+    .forEach(function(el){if(el)el.style.display=show?'':'none';});
 }
 
 /* ── Play engine ── */
@@ -5682,18 +5718,16 @@ function play(qi){
   updPlayerBar(t);
   updAllUI();
   if(!t.ytId){
-    /* Tunggu enrich selesai (polling 500ms, max 15 detik) */
     var tries=0;
     var poll=setInterval(function(){
       tries++;
-      var cur=S.q[qi];
-      if(cur&&cur.ytId){
+      if(S.q[qi]&&S.q[qi].ytId){
         clearInterval(poll);
-        if(S.i===qi) doPlay(cur);
-      } else if(tries>30){
+        if(S.i===qi)doPlay(S.q[qi]);
+      }else if(tries>30){
         clearInterval(poll);
         var ar=$i('mpbArtist');
-        if(ar)ar.textContent='Audio tidak tersedia';
+        if(ar&&S.i===qi)ar.textContent='Audio tidak tersedia';
       }
     },500);
     return;
@@ -5702,33 +5736,23 @@ function play(qi){
 }
 
 function doPlay(t){
-  if(!S.ytReady||!S.yt){
-    setTimeout(function(){doPlay(t);},500);
-    return;
-  }
+  if(!S.ytReady||!S.yt){setTimeout(function(){doPlay(t);},500);return;}
   S.yt.loadVideoById(t.ytId);
 }
 
 window.musicPlayHome=function(i){S.q=S.homeQ;play(i);};
 window.musicLoadSearch=function(i){S.q=S.searchQ;play(i);};
-
-window.musicTogglePlay=function(){
-  if(!S.yt||S.i<0)return;
-  S.playing?S.yt.pauseVideo():S.yt.playVideo();
-};
-
+window.musicTogglePlay=function(){if(!S.yt||S.i<0)return;S.playing?S.yt.pauseVideo():S.yt.playVideo();};
 window.musicNext=function(){
   if(!S.q.length)return;
   var n=S.shuffle?Math.floor(Math.random()*S.q.length):(S.i+1)%S.q.length;
   play(n);
 };
-
 window.musicPrev=function(){
   if(!S.q.length)return;
   try{if(S.yt&&S.yt.getCurrentTime()>3){S.yt.seekTo(0);return;}}catch(e){}
   play((S.i-1+S.q.length)%S.q.length);
 };
-
 window.musicSeek=function(e){
   var bar=$i('mpbProgress');
   if(!bar||!S.yt||!S.ytReady)return;
@@ -5736,21 +5760,14 @@ window.musicSeek=function(e){
   var p=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
   try{var d=S.yt.getDuration();if(d)S.yt.seekTo(p*d);}catch(err){}
 };
-
-window.musicSetVolume=function(v){
-  try{if(S.yt&&S.ytReady)S.yt.setVolume(parseInt(v));}catch(e){}
-};
-
+window.musicSetVolume=function(v){try{if(S.yt&&S.ytReady)S.yt.setVolume(parseInt(v));}catch(e){}};
 window.musicToggleRepeat=function(){
   S.repeat=!S.repeat;
-  var b=$i('mpbRepeatBtn');
-  if(b)b.classList.toggle('active',S.repeat);
+  var b=$i('mpbRepeatBtn');if(b)b.classList.toggle('active',S.repeat);
 };
-
 window.musicToggleShuffle=function(){
   S.shuffle=!S.shuffle;
-  var b=$i('mpbShuffleBtn');
-  if(b)b.classList.toggle('active',S.shuffle);
+  var b=$i('mpbShuffleBtn');if(b)b.classList.toggle('active',S.shuffle);
 };
 
 /* ── UI ── */
@@ -5763,14 +5780,12 @@ function updPlayerBar(t){
   var c=$i('mpbCurTime');if(c)c.textContent='0:00';
   var d=$i('mpbDurTime');if(d)d.textContent=t.duration?fmt(t.duration):'0:00';
 }
-
 function updPlayBtn(){
   var ic=$i('mpbPlayIcon');if(!ic)return;
   ic.innerHTML=S.playing
     ?'<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
     :'<polygon points="5 3 19 12 5 21 5 3"/>';
 }
-
 function updAllUI(){
   updPlayBtn();
   document.querySelectorAll('.mp-trending-card').forEach(function(el,i){
@@ -5829,7 +5844,6 @@ document.addEventListener('DOMContentLoaded',function(){
     inp.addEventListener('input',function(){
       var clr=$i('mpSearchClear');
       if(clr)clr.style.display=this.value?'flex':'none';
-      /* Kalau input dikosongkan manual → munculkan trending */
       if(!this.value.trim()){
         var sec=$i('mpSearchSection');
         if(sec)sec.style.display='none';
