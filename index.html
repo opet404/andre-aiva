@@ -2131,7 +2131,7 @@ body.light #mpbVolume{background:rgba(0,0,0,0.12)}
   <!-- Bottom player bar -->
   <div id="mpPlayerBar">
     <div class="mpb-top">
-      <img class="mpb-art" id="mpbArt" src="" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 50 50%22><rect width=%2250%22 height=%2250%22 fill=%22%233d72f620%22 rx=%2213%22/><text x=%2225%22 y=%2232%22 font-size=%2222%22 text-anchor=%22middle%22>🎵</text></svg>'">
+      <img class="mpb-art" id="mpbArt" src="" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 50 50%22><rect width=%2250%22 height=%2250%22 fill=%22%233d72f620%22 rx=%2213%22/><circle cx=%2225%22 cy=%2225%22 r=%228%22 fill=%22none%22 stroke=%22%233d72f6%22 stroke-width=%222%22/></svg>'">
       <div class="mpb-info">
         <div class="mpb-title" id="mpbTitle">—</div>
         <div class="mpb-artist" id="mpbArtist"></div>
@@ -4742,7 +4742,7 @@ function buildMultiMindResultEl(saved){
     </div>
     <div class="mm-cards-row">${cardsHtml}</div>
     ${debates.length?`<div class="mm-debate-log">${debateHtml}</div>`:""}
-    <div class="mm-voting-section"><div class="mm-voting-title">📊 Hasil Voting</div><div class="mm-voting-bars">${voteBarHtml}</div></div>
+    <div class="mm-voting-section"><div class="mm-voting-title">Hasil Voting</div><div class="mm-voting-bars">${voteBarHtml}</div></div>
     <div class="mm-final-wrap">
       <div class="mm-final-label">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
@@ -5390,9 +5390,7 @@ function startNameCanvas(){
 </script>
 <script>
 /* ============================================================
-   AIVA MUSIC PLAYER — Jamendo API
-   Session-only state. Resets when tab/browser is closed.
-   Trending section + Charts + Search. Full audio (Jamendo royalty-free).
+   AIVA MUSIC PLAYER — Jamendo API (Full audio, no 30s limit)
    ============================================================ */
 
 (function(){
@@ -5411,11 +5409,22 @@ function startNameCanvas(){
 
   function $id(id){ return document.getElementById(id); }
 
-  // Jamendo: audioformat=mp32 gives full audio (not preview)
-  // imagesize=500 gives larger album art
+  // Jamendo: audioformat=mp32 = full audio stream (not 30s preview)
+  // DO NOT use audiodownload — it triggers CORS. Use audio field directly.
   var JAMENDO_CLIENT = 'c5b8e5e9';
-  var BASE = 'https://api.jamendo.com/v3.0/tracks/?client_id=' + JAMENDO_CLIENT
-    + '&format=json&audioformat=mp32&imagesize=500&include=musicinfo';
+
+  function buildUrl(params){
+    var base = 'https://api.jamendo.com/v3.0/tracks/';
+    var q = '?client_id=' + JAMENDO_CLIENT
+          + '&format=json'
+          + '&audioformat=mp32'
+          + '&imagesize=500'
+          + '&include=musicinfo';
+    Object.keys(params).forEach(function(k){
+      q += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+    });
+    return base + q;
+  }
 
   function fmtTime(s){
     if(!s || isNaN(s)) return '0:00';
@@ -5425,41 +5434,85 @@ function startNameCanvas(){
   function escHtml(s){
     return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+
+  // Use audio field (not audiodownload) — this is the streamable full audio URL
   function mapTracks(results){
     return (results||[]).map(function(t){
-      // prefer audiodownload (full) then audio
-      var url = t.audiodownload || t.audio || '';
-      return { id:t.id, title:t.name||'Unknown', artist:t.artist_name||'Unknown Artist',
-        url:url, art:t.image||'', duration:parseInt(t.duration)||0, album:t.album_name||'' };
+      var url = t.audio || '';
+      // Ensure we get the mp3 stream not the download
+      if(url && url.indexOf('audioformat') === -1 && url.indexOf('.mp3') === -1){
+        url = url + (url.indexOf('?') > -1 ? '&' : '?') + 'audioformat=mp32';
+      }
+      return {
+        id: t.id,
+        title: t.name || 'Unknown',
+        artist: t.artist_name || 'Unknown Artist',
+        url: url,
+        art: t.image || '',
+        duration: parseInt(t.duration) || 0,
+        album: t.album_name || ''
+      };
     }).filter(function(t){ return !!t.url; });
   }
-  var FALLBACK_ART = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'%3E%3Crect width='60' height='60' fill='%233d72f622' rx='14'/%3E%3Ctext x='30' y='40' font-size='26' text-anchor='middle'%3E%F0%9F%8E%B5%3C/text%3E%3C/svg%3E";
+
+  var FALLBACK_ART = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'%3E%3Crect width='60' height='60' fill='%233d72f622' rx='14'/%3E%3Cpath d='M22 20h16v16H22z' fill='none' stroke='%233d72f6' stroke-width='2'/%3E%3Ccircle cx='30' cy='28' r='3' fill='%233d72f6'/%3E%3C/svg%3E";
 
   /* ─── Load Trending & Charts ─── */
   function loadTrendingAndCharts(){
-    if(mx.trendingTracks.length){
-      renderTrending(mx.trendingTracks);
-      renderCharts(mx.chartTracks);
-      return;
-    }
-    var urlTrend = BASE + '&limit=10&boost=popularity_total&tags=pop';
-    fetch(urlTrend).then(function(r){ return r.json(); }).then(function(data){
-      mx.trendingTracks = mapTracks(data.results);
-      renderTrending(mx.trendingTracks);
-    }).catch(function(){ renderTrending([]); });
+    // Always show trending/charts section (don't hide when searching)
+    renderTrendingSkeleton();
+    renderChartsSkeleton();
 
-    var urlChart = BASE + '&limit=12&boost=listens_last_month';
-    fetch(urlChart).then(function(r){ return r.json(); }).then(function(data){
-      mx.chartTracks = mapTracks(data.results);
-      renderCharts(mx.chartTracks);
-    }).catch(function(){ renderCharts([]); });
+    var urlTrend = buildUrl({ limit: 10, boost: 'popularity_total', tags: 'pop' });
+    fetch(urlTrend)
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        mx.trendingTracks = mapTracks(data.results);
+        renderTrending(mx.trendingTracks);
+      })
+      .catch(function(){ renderTrending([]); });
+
+    var urlChart = buildUrl({ limit: 12, boost: 'listens_last_month' });
+    fetch(urlChart)
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        mx.chartTracks = mapTracks(data.results);
+        renderCharts(mx.chartTracks);
+      })
+      .catch(function(){ renderCharts([]); });
+  }
+
+  function renderTrendingSkeleton(){
+    var wrap = $id('mpTrendingWrap');
+    if(!wrap) return;
+    wrap.innerHTML = [1,2,3,4].map(function(){
+      return '<div class="mp-trending-card">'
+        + '<div class="mp-trending-thumb mp-skel" style="height:150px"></div>'
+        + '<div class="mp-skel" style="height:12px;width:105px;margin-top:9px;border-radius:6px"></div>'
+        + '<div class="mp-skel" style="height:10px;width:72px;margin-top:5px;border-radius:5px"></div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function renderChartsSkeleton(){
+    var wrap = $id('mpChartsWrap');
+    if(!wrap) return;
+    wrap.innerHTML = [1,2,3,4,5].map(function(i){
+      return '<div class="mp-charts-item">'
+        + '<div class="mp-charts-num">' + i + '</div>'
+        + '<div class="mp-skel" style="width:52px;height:52px;border-radius:13px;flex-shrink:0"></div>'
+        + '<div style="flex:1;display:flex;flex-direction:column;gap:5px;padding-left:4px">'
+        + '<div class="mp-skel" style="height:12px;width:140px;border-radius:5px"></div>'
+        + '<div class="mp-skel" style="height:10px;width:90px;border-radius:5px"></div>'
+        + '</div></div>';
+    }).join('');
   }
 
   function renderTrending(tracks){
     var wrap = $id('mpTrendingWrap');
     if(!wrap) return;
     if(!tracks.length){
-      wrap.innerHTML = '<div class="mp-empty" style="padding:16px">Gagal memuat trending</div>';
+      wrap.innerHTML = '<div class="mp-empty" style="padding:16px">Gagal memuat trending. Cek koneksi.</div>';
       return;
     }
     wrap.innerHTML = tracks.map(function(t, i){
@@ -5503,59 +5556,75 @@ function startNameCanvas(){
   }
 
   window.musicPlayTrending = function(i){
-    mx.mode = 'trending'; mx.tracks = mx.trendingTracks;
-    musicLoad(i, true); updateAllActiveUI();
+    mx.mode = 'trending';
+    mx.tracks = mx.trendingTracks;
+    musicLoad(i, true);
+    updateAllActiveUI();
   };
+
   window.musicPlayChart = function(i){
-    mx.mode = 'chart'; mx.tracks = mx.chartTracks;
-    musicLoad(i, true); updateAllActiveUI();
+    mx.mode = 'chart';
+    mx.tracks = mx.chartTracks;
+    musicLoad(i, true);
+    updateAllActiveUI();
   };
 
   /* ─── Search ─── */
   function musicSearch(){
-    var q = ($id('mpSearchInput')||{}).value;
-    if(!q || !q.trim()) return;
-    q = q.trim();
+    var inp = $id('mpSearchInput');
+    var q = inp ? inp.value.trim() : '';
+    if(!q) return;
+
     mx.searching = true;
     var btn = $id('mpSearchBtn');
-    if(btn){ btn.textContent = '⏳'; btn.disabled = true; }
-    var list = $id('mpTrackList');
-    if(list){ list.style.display='block'; list.innerHTML = '<div class="mp-empty">Mencari "<b>' + escHtml(q) + '</b>"...</div>'; }
+    if(btn){ btn.textContent = '...'; btn.disabled = true; }
 
-    var url = BASE + '&limit=20&search=' + encodeURIComponent(q) + '&boost=popularity_total';
-    fetch(url).then(function(r){ return r.json(); }).then(function(data){
-      mx.searching = false;
-      if(btn){ btn.textContent = 'Cari'; btn.disabled = false; }
-      var results = mapTracks(data.results);
-      if(!results.length){
-        // fallback: search by tags
-        var url2 = BASE + '&limit=20&tags=' + encodeURIComponent(q);
-        return fetch(url2).then(function(r){ return r.json(); }).then(function(d){
-          var r2 = mapTracks(d.results);
-          if(!r2.length){
-            if(list) list.innerHTML = '<div class="mp-empty">Tidak ada hasil untuk "<b>' + escHtml(q) + '</b>"<br><span style="font-size:11px;opacity:0.6">Coba: pop, jazz, lo-fi, rock</span></div>';
-            return;
-          }
-          mx.mode = 'search'; mx.tracks = r2;
-          renderSearchResults(r2, q);
-        });
-      }
-      mx.mode = 'search'; mx.tracks = results;
-      renderSearchResults(results, q);
-      // scroll to top of results
-      var body = $id('mpBody');
-      if(body) body.scrollTop = 0;
-    }).catch(function(){
-      mx.searching = false;
-      if(btn){ btn.textContent = 'Cari'; btn.disabled = false; }
-      if(list) list.innerHTML = '<div class="mp-empty">Tidak bisa terhubung ke server musik</div>';
-    });
+    var list = $id('mpTrackList');
+    if(list){
+      list.style.display = 'block';
+      list.innerHTML = '<div class="mp-empty">Mencari "<b>' + escHtml(q) + '</b>"...</div>';
+    }
+
+    // Trending & charts stay visible during search — only results list is added above
+
+    var url = buildUrl({ limit: 20, search: q, boost: 'popularity_total' });
+    fetch(url)
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        mx.searching = false;
+        if(btn){ btn.textContent = 'Cari'; btn.disabled = false; }
+        var results = mapTracks(data.results);
+        if(!results.length){
+          // fallback: search by tags
+          var url2 = buildUrl({ limit: 20, tags: q });
+          return fetch(url2)
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+              var r2 = mapTracks(d.results);
+              if(!r2.length){
+                if(list) list.innerHTML = '<div class="mp-empty">Tidak ada hasil untuk "<b>' + escHtml(q) + '</b>"<br><span style="font-size:11px;opacity:0.6">Coba: pop, jazz, lofi, rock, electronic</span></div>';
+                return;
+              }
+              mx.mode = 'search'; mx.tracks = r2;
+              renderSearchResults(r2, q);
+            });
+        }
+        mx.mode = 'search'; mx.tracks = results;
+        renderSearchResults(results, q);
+        // scroll results ke atas
+        if(list) list.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      })
+      .catch(function(){
+        mx.searching = false;
+        if(btn){ btn.textContent = 'Cari'; btn.disabled = false; }
+        if(list) list.innerHTML = '<div class="mp-empty">Tidak bisa terhubung ke server musik</div>';
+      });
   }
 
   function renderSearchResults(tracks, q){
     var list = $id('mpTrackList');
     if(!list) return;
-    var label = '<div class="mp-list-label">' + tracks.length + ' LAGU DITEMUKAN' + (q ? ' — "' + escHtml(q) + '"' : '') + '</div>';
+    var label = '<div class="mp-list-label">' + tracks.length + ' LAGU' + (q ? ' — "' + escHtml(q) + '"' : '') + '</div>';
     var items = tracks.map(function(t, i){
       var dur = t.duration ? fmtTime(t.duration) : '';
       var art = escHtml(t.art || FALLBACK_ART);
@@ -5580,50 +5649,96 @@ function startNameCanvas(){
     idx = ((idx % mx.tracks.length) + mx.tracks.length) % mx.tracks.length;
     mx.idx = idx;
     var t = mx.tracks[idx];
+
+    // Set source and load
     audio.src = t.url;
     audio.load();
     mx.loaded = true;
+
     updatePlayerBar(t);
     updateAllActiveUI();
     updateSidebarIndicator();
+
     if(autoplay !== false){
-      audio.play().then(function(){
-        mx.playing = true;
-        updatePlayIcons(); updateAllActiveUI(); updateSidebarIndicator();
-      }).catch(function(e){ console.log('play blocked', e); });
+      var playPromise = audio.play();
+      if(playPromise !== undefined){
+        playPromise.then(function(){
+          mx.playing = true;
+          updatePlayIcons();
+          updateAllActiveUI();
+          updateSidebarIndicator();
+        }).catch(function(e){
+          console.log('Autoplay blocked:', e.message);
+          // Try again after short delay (mobile browsers)
+          setTimeout(function(){
+            audio.play().then(function(){
+              mx.playing = true;
+              updatePlayIcons();
+              updateAllActiveUI();
+              updateSidebarIndicator();
+            }).catch(function(){});
+          }, 300);
+        });
+      }
     }
   }
 
   function musicTogglePlay(){
     if(!mx.loaded || !mx.tracks.length) return;
-    if(mx.playing){ audio.pause(); mx.playing = false; }
-    else { audio.play().then(function(){ mx.playing = true; updateAllActiveUI(); updateSidebarIndicator(); }).catch(function(){}); }
-    updatePlayIcons();
+    if(mx.playing){
+      audio.pause();
+      mx.playing = false;
+      updatePlayIcons();
+      updateAllActiveUI();
+      updateSidebarIndicator();
+    } else {
+      audio.play()
+        .then(function(){
+          mx.playing = true;
+          updatePlayIcons();
+          updateAllActiveUI();
+          updateSidebarIndicator();
+        })
+        .catch(function(e){ console.log('Play failed:', e); });
+    }
   }
 
   function musicNext(){
     if(!mx.tracks.length) return;
-    var next = mx.shuffle ? Math.floor(Math.random()*mx.tracks.length) : (mx.idx+1) % mx.tracks.length;
+    var next;
+    if(mx.shuffle){
+      next = Math.floor(Math.random() * mx.tracks.length);
+      if(next === mx.idx && mx.tracks.length > 1) next = (next + 1) % mx.tracks.length;
+    } else {
+      next = (mx.idx + 1) % mx.tracks.length;
+    }
     musicLoad(next, true);
   }
 
   function musicPrev(){
     if(!mx.tracks.length) return;
-    if(audio.currentTime > 3){ audio.currentTime = 0; return; }
+    if(audio.currentTime > 3){
+      audio.currentTime = 0;
+      return;
+    }
     musicLoad((mx.idx - 1 + mx.tracks.length) % mx.tracks.length, true);
   }
 
   function musicSeek(e){
     var bar = $id('mpbProgress');
-    if(!bar || !audio.duration) return;
+    if(!bar || !audio.duration || isNaN(audio.duration)) return;
     var rect = bar.getBoundingClientRect();
-    audio.currentTime = Math.max(0, Math.min(1, (e.clientX-rect.left)/rect.width)) * audio.duration;
+    var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    audio.currentTime = pct * audio.duration;
   }
 
-  function musicSetVolume(v){ audio.volume = parseInt(v)/100; }
+  function musicSetVolume(v){
+    audio.volume = parseInt(v, 10) / 100;
+  }
 
   function musicToggleRepeat(){
-    mx.repeat = !mx.repeat; audio.loop = mx.repeat;
+    mx.repeat = !mx.repeat;
+    audio.loop = mx.repeat;
     var btn = $id('mpbRepeatBtn');
     if(btn) btn.classList.toggle('active', mx.repeat);
   }
@@ -5635,23 +5750,51 @@ function startNameCanvas(){
   }
 
   /* ─── Audio events ─── */
-  audio.addEventListener('ended', function(){ if(!mx.repeat) musicNext(); });
+  audio.addEventListener('ended', function(){
+    if(!mx.repeat) musicNext();
+  });
+
   audio.addEventListener('timeupdate', function(){
-    if(!audio.duration) return;
+    if(!audio.duration || isNaN(audio.duration)) return;
+    var pct = (audio.currentTime / audio.duration * 100).toFixed(2);
     var fill = $id('mpbProgressFill');
-    if(fill) fill.style.width = (audio.currentTime/audio.duration*100) + '%';
+    if(fill) fill.style.width = pct + '%';
     var cur = $id('mpbCurTime');
     if(cur) cur.textContent = fmtTime(audio.currentTime);
   });
+
   audio.addEventListener('loadedmetadata', function(){
     var dur = $id('mpbDurTime');
     if(dur) dur.textContent = fmtTime(audio.duration);
   });
-  audio.addEventListener('play', function(){
-    mx.playing = true; updatePlayIcons(); updateAllActiveUI(); updateSidebarIndicator();
+
+  audio.addEventListener('durationchange', function(){
+    var dur = $id('mpbDurTime');
+    if(dur && audio.duration && !isNaN(audio.duration)){
+      dur.textContent = fmtTime(audio.duration);
+    }
   });
+
+  audio.addEventListener('play', function(){
+    mx.playing = true;
+    updatePlayIcons();
+    updateAllActiveUI();
+    updateSidebarIndicator();
+  });
+
   audio.addEventListener('pause', function(){
-    mx.playing = false; updatePlayIcons(); updateAllActiveUI(); updateSidebarIndicator();
+    mx.playing = false;
+    updatePlayIcons();
+    updateAllActiveUI();
+    updateSidebarIndicator();
+  });
+
+  audio.addEventListener('error', function(e){
+    console.warn('Audio error:', e);
+    // Try next track if current fails
+    if(mx.tracks.length > 1){
+      setTimeout(function(){ musicNext(); }, 1000);
+    }
   });
 
   /* ─── UI helpers ─── */
@@ -5666,38 +5809,54 @@ function startNameCanvas(){
   function updatePlayerBar(t){
     var bar = $id('mpPlayerBar');
     if(bar) bar.classList.add('has-track');
+
     var art = $id('mpbArt');
     if(art){ art.src = t.art || FALLBACK_ART; }
+
     var title = $id('mpbTitle');
     if(title) title.textContent = t.title || '—';
+
     var artist = $id('mpbArtist');
     if(artist) artist.textContent = t.artist || '';
+
     var dur = $id('mpbDurTime');
-    if(dur && t.duration) dur.textContent = fmtTime(t.duration);
-    var fill = $id('mpbProgressFill'); if(fill) fill.style.width = '0%';
-    var cur = $id('mpbCurTime'); if(cur) cur.textContent = '0:00';
+    if(dur) dur.textContent = t.duration ? fmtTime(t.duration) : '—:——';
+
+    var fill = $id('mpbProgressFill');
+    if(fill) fill.style.width = '0%';
+
+    var cur = $id('mpbCurTime');
+    if(cur) cur.textContent = '0:00';
   }
 
   function updateAllActiveUI(){
+    // Trending cards
     document.querySelectorAll('.mp-trending-card').forEach(function(el, i){
-      var isActive = mx.mode==='trending' && mx.idx===i && mx.loaded;
+      var isActive = mx.mode === 'trending' && mx.idx === i && mx.loaded;
       el.classList.toggle('active', isActive);
       var badge = el.querySelector('.mp-trending-playing-badge');
       var eq = el.querySelector('.music-eq');
       if(badge) badge.classList.toggle('show', isActive && mx.playing);
       if(eq) eq.classList.toggle('active', isActive && mx.playing);
     });
+
+    // Chart items
     document.querySelectorAll('.mp-charts-item').forEach(function(el, i){
-      var isActive = mx.mode==='chart' && mx.idx===i && mx.loaded;
+      var isActive = mx.mode === 'chart' && mx.idx === i && mx.loaded;
       el.classList.toggle('active', isActive);
       var eqWrap = el.querySelector('.mp-charts-eq');
       if(eqWrap){
-        if(isActive) eqWrap.innerHTML = '<div class="music-eq' + (mx.playing?' active':'') + '"><span></span><span></span><span></span></div>';
-        else eqWrap.innerHTML = '';
+        if(isActive){
+          eqWrap.innerHTML = '<div class="music-eq' + (mx.playing ? ' active' : '') + '"><span></span><span></span><span></span></div>';
+        } else {
+          eqWrap.innerHTML = '';
+        }
       }
     });
+
+    // Search results
     document.querySelectorAll('.mp-track').forEach(function(el, i){
-      var isP = mx.mode==='search' && mx.idx===i && mx.loaded;
+      var isP = mx.mode === 'search' && mx.idx === i && mx.loaded;
       el.classList.toggle('playing', isP);
       var pi = el.querySelector('.mp-track-play-icon svg');
       if(pi){
@@ -5713,7 +5872,7 @@ function startNameCanvas(){
     var sub = $id('sbMusicSub');
     if(mx.loaded && mx.playing){
       if(eq) eq.classList.add('active');
-      if(sub) sub.textContent = mx.tracks[mx.idx] ? mx.tracks[mx.idx].title : 'Music';
+      if(sub && mx.tracks[mx.idx]) sub.textContent = mx.tracks[mx.idx].title;
     } else {
       if(eq) eq.classList.remove('active');
       if(sub){
@@ -5727,11 +5886,16 @@ function startNameCanvas(){
   window.openMusicPage = function(){
     var p = $id('musicPage');
     if(!p) return;
-    p.classList.remove('out','show');
+    p.classList.remove('out', 'show');
     p.style.display = 'flex';
     void p.offsetWidth;
     p.classList.add('show');
     loadTrendingAndCharts();
+    // Hide search results on open — show trending/charts
+    var list = $id('mpTrackList');
+    if(list && !mx.searching) list.style.display = 'none';
+    var inp = $id('mpSearchInput');
+    if(inp) inp.value = '';
   };
 
   window.closeMusicPage = function(){
@@ -5739,24 +5903,35 @@ function startNameCanvas(){
     if(!p) return;
     p.classList.remove('show');
     p.classList.add('out');
-    setTimeout(function(){ p.style.display='none'; p.classList.remove('show','out'); }, 260);
+    setTimeout(function(){ p.style.display = 'none'; p.classList.remove('show', 'out'); }, 260);
   };
 
   /* ─── Globals ─── */
-  window.musicSearch = musicSearch;
-  window.musicTogglePlay = musicTogglePlay;
-  window.musicNext = musicNext;
-  window.musicPrev = musicPrev;
-  window.musicSeek = musicSeek;
-  window.musicSetVolume = musicSetVolume;
-  window.musicToggleRepeat = musicToggleRepeat;
+  window.musicSearch    = musicSearch;
+  window.musicTogglePlay  = musicTogglePlay;
+  window.musicNext      = musicNext;
+  window.musicPrev      = musicPrev;
+  window.musicSeek      = musicSeek;
+  window.musicSetVolume   = musicSetVolume;
+  window.musicToggleRepeat  = musicToggleRepeat;
   window.musicToggleShuffle = musicToggleShuffle;
-  window.musicLoadIdx = function(i){ mx.mode='search'; musicLoad(i, true); updateAllActiveUI(); };
+  window.musicLoadIdx = function(i){
+    mx.mode = 'search';
+    musicLoad(i, true);
+    updateAllActiveUI();
+  };
 
   document.addEventListener('DOMContentLoaded', function(){
     var inp = $id('mpSearchInput');
-    if(inp) inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); musicSearch(); } });
+    if(inp){
+      inp.addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){ e.preventDefault(); musicSearch(); }
+      });
+    }
     audio.volume = 0.8;
+    // Init repeat button state
+    var repBtn = $id('mpbRepeatBtn');
+    if(repBtn) repBtn.classList.toggle('active', mx.repeat);
   });
 
   window.addEventListener('beforeunload', function(){ audio.pause(); audio.src = ''; });
