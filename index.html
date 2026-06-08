@@ -1702,6 +1702,33 @@ body.light .mp-search-input{background:rgba(0,0,0,0.04);border-color:rgba(0,0,0,
 }
 .mp-search-btn:hover{transform:translateY(-1px);box-shadow:0 5px 18px rgba(61,114,246,0.5)}
 .mp-search-btn:disabled{opacity:0.5;cursor:default;transform:none;box-shadow:none}
+.mp-search-inner{
+  flex:1;position:relative;display:flex;align-items:center;
+}
+.mp-search-ico{
+  position:absolute;left:12px;width:15px;height:15px;
+  stroke:var(--muted);stroke-width:2;flex-shrink:0;pointer-events:none;
+}
+.mp-search-inner .mp-search-input{padding-left:38px;width:100%}
+.mp-search-clear{
+  position:absolute;right:10px;width:22px;height:22px;border-radius:6px;
+  background:rgba(255,255,255,0.1);border:none;cursor:pointer;
+  display:none;align-items:center;justify-content:center;
+}
+body.light .mp-search-clear{background:rgba(0,0,0,0.08)}
+.mp-search-clear svg{width:11px;height:11px;stroke:var(--muted);stroke-width:2.5}
+.mp-divider{height:1px;background:rgba(255,255,255,0.06);margin:4px 16px 0}
+body.light .mp-divider{background:rgba(0,0,0,0.07)}
+.mpb-art-wrap{position:relative;flex-shrink:0;width:52px;height:52px;}
+.mpb-art-wrap .mpb-art{width:52px;height:52px;border-radius:13px;object-fit:cover;box-shadow:0 4px 18px rgba(0,0,0,0.4);}
+.mpb-progress-wrap{
+  width:100%;height:6px;border-radius:6px;
+  background:rgba(255,255,255,0.1);cursor:pointer;
+  position:relative;margin-bottom:5px;overflow:hidden;
+  transition:height 0.15s;
+}
+.mpb-progress-wrap:hover{height:8px}
+body.light .mpb-progress-wrap{background:rgba(0,0,0,0.1)}
 
 /* Body scroll area */
 .mp-body{
@@ -1895,13 +1922,11 @@ body.light #mpPlayerBar{background:rgba(240,244,255,0.97);border-top-color:rgba(
 }
 
 /* Progress bar */
-.mpb-progress{
-  width:100%;height:5px;border-radius:5px;
-  background:rgba(255,255,255,0.1);cursor:pointer;
-  position:relative;overflow:hidden;margin-bottom:5px;
-  transition:height 0.15s;
+.mpb-progress-bg{
+  position:absolute;inset:0;border-radius:6px;
+  background:rgba(255,255,255,0.1);
 }
-.mpb-progress:hover{height:7px}
+body.light .mpb-progress-bg{background:rgba(0,0,0,0.1)}.mpb-progress:hover{height:7px}
 body.light .mpb-progress{background:rgba(0,0,0,0.1)}
 .mpb-progress-fill{
   height:100%;border-radius:5px;
@@ -2072,34 +2097,31 @@ body.light #mpbVolume{background:rgba(0,0,0,0.12)}
 
 <!-- MUSIC PAGE -->
 <div id="musicPage">
-  <!-- Header -->
   <div class="mp-hdr">
     <div class="mp-back" onclick="closeMusicPage()">
-      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+      <svg viewBox="0 0 24 24" fill="none"><polyline points="15 18 9 12 15 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
     </div>
     <div class="mp-hdr-title"><span>Music</span></div>
   </div>
-
-  <!-- Search — sticky top -->
   <div class="mp-search-sticky">
     <div class="mp-search-wrap">
-      <input class="mp-search-input" id="mpSearchInput" type="text" placeholder="Cari lagu, artis, genre..." maxlength="80" autocomplete="off">
+      <div class="mp-search-inner">
+        <svg class="mp-search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
+        <input class="mp-search-input" id="mpSearchInput" type="text" placeholder="Cari lagu, artis, genre..." maxlength="80" autocomplete="off">
+        <div class="mp-search-clear" id="mpSearchClear" onclick="musicClearSearch()" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </div>
+      </div>
       <button class="mp-search-btn" id="mpSearchBtn" onclick="musicSearch()">Cari</button>
     </div>
   </div>
-
-  <!-- Scrollable body -->
   <div class="mp-body" id="mpBody">
-
-    <!-- Search results (hidden until search) -->
-    <div class="mp-tracklist-wrap" id="mpTrackList" style="display:none"></div>
-
-    <!-- Trending -->
-    <div class="mp-section-label">
-      <span>Sedang Trending</span>
+    <div id="mpSearchSection" style="display:none">
+      <div class="mp-tracklist-wrap" id="mpTrackList"></div>
+      <div class="mp-divider"></div>
     </div>
+    <div class="mp-section-label" id="mpTrendingLabel">Sedang Trending</div>
     <div class="mp-trending-wrap" id="mpTrendingWrap">
-      <!-- skeleton loaders -->
       <div class="mp-trending-card">
         <div class="mp-trending-thumb mp-skel" style="height:150px"></div>
         <div class="mp-skel" style="height:12px;width:105px;margin-top:9px;border-radius:6px"></div>
@@ -2116,29 +2138,24 @@ body.light #mpbVolume{background:rgba(0,0,0,0.12)}
         <div class="mp-skel" style="height:10px;width:65px;margin-top:5px;border-radius:5px"></div>
       </div>
     </div>
-
-    <!-- Top Charts -->
-    <div class="mp-section-label">
-      <span>Top Charts</span>
-    </div>
-    <div class="mp-charts-wrap" id="mpChartsWrap">
-      <!-- filled by JS -->
-    </div>
-
+    <div class="mp-section-label" id="mpChartsLabel">Top Charts</div>
+    <div class="mp-charts-wrap" id="mpChartsWrap"></div>
     <div class="mp-body-end"></div>
   </div>
-
-  <!-- Bottom player bar -->
   <div id="mpPlayerBar">
     <div class="mpb-top">
-      <img class="mpb-art" id="mpbArt" src="" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 50 50%22><rect width=%2250%22 height=%2250%22 fill=%22%233d72f620%22 rx=%2213%22/><circle cx=%2225%22 cy=%2225%22 r=%228%22 fill=%22none%22 stroke=%22%233d72f6%22 stroke-width=%222%22/></svg>'">
+      <div class="mpb-art-wrap">
+        <img class="mpb-art" id="mpbArt" src="" alt="">
+        <div class="mpb-art-pulse" id="mpbArtPulse"></div>
+      </div>
       <div class="mpb-info">
-        <div class="mpb-title" id="mpbTitle">—</div>
+        <div class="mpb-title" id="mpbTitle">Pilih lagu untuk diputar</div>
         <div class="mpb-artist" id="mpbArtist"></div>
       </div>
       <div class="mpb-full-tag">FULL</div>
     </div>
-    <div class="mpb-progress" id="mpbProgress" onclick="musicSeek(event)">
+    <div class="mpb-progress-wrap" id="mpbProgress" onclick="musicSeek(event)">
+      <div class="mpb-progress-bg"></div>
       <div class="mpb-progress-fill" id="mpbProgressFill"></div>
     </div>
     <div class="mpb-time-row">
@@ -2146,26 +2163,26 @@ body.light #mpbVolume{background:rgba(0,0,0,0.12)}
       <span id="mpbDurTime">0:00</span>
     </div>
     <div class="mpb-controls">
-      <button class="mpb-ctrl" id="mpbRepeatBtn" onclick="musicToggleRepeat()" title="Repeat">
-        <svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+      <button class="mpb-ctrl" id="mpbShuffleBtn" onclick="musicToggleShuffle()" title="Shuffle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
       </button>
-      <button class="mpb-ctrl" onclick="musicPrev()" title="Previous">
-        <svg viewBox="0 0 24 24"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+      <button class="mpb-ctrl mpb-prev" onclick="musicPrev()" title="Sebelumnya">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="19 20 9 12 19 4 19 20" fill="currentColor" stroke="none"/><line x1="5" y1="19" x2="5" y2="5" stroke-width="2.5"/></svg>
       </button>
       <button id="mpbPlayBtn" onclick="musicTogglePlay()">
-        <svg id="mpbPlayIcon" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <svg id="mpbPlayIcon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
       </button>
-      <button class="mpb-ctrl" onclick="musicNext()" title="Next">
-        <svg viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+      <button class="mpb-ctrl mpb-next" onclick="musicNext()" title="Berikutnya">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/><line x1="19" y1="5" x2="19" y2="19" stroke-width="2.5"/></svg>
       </button>
-      <button class="mpb-ctrl" id="mpbShuffleBtn" onclick="musicToggleShuffle()" title="Shuffle">
-        <svg viewBox="0 0 24 24"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
+      <button class="mpb-ctrl" id="mpbRepeatBtn" onclick="musicToggleRepeat()" title="Ulangi">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
       </button>
     </div>
     <div class="mpb-vol-row">
-      <svg viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/></svg>
       <input type="range" id="mpbVolume" min="0" max="100" value="80" oninput="musicSetVolume(this.value)">
-      <svg viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
     </div>
   </div>
 </div>
@@ -4742,7 +4759,7 @@ function buildMultiMindResultEl(saved){
     </div>
     <div class="mm-cards-row">${cardsHtml}</div>
     ${debates.length?`<div class="mm-debate-log">${debateHtml}</div>`:""}
-    <div class="mm-voting-section"><div class="mm-voting-title">Hasil Voting</div><div class="mm-voting-bars">${voteBarHtml}</div></div>
+    <div class="mm-voting-section"><div class="mm-voting-title">📊 Hasil Voting</div><div class="mm-voting-bars">${voteBarHtml}</div></div>
     <div class="mm-final-wrap">
       <div class="mm-final-label">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
@@ -5390,551 +5407,442 @@ function startNameCanvas(){
 </script>
 <script>
 /* ============================================================
-   AIVA MUSIC PLAYER — Jamendo API (Full audio, no 30s limit)
+   AIVA MUSIC PLAYER v4
+   Data  : Deezer API langsung dari browser (CORS enabled, no key)
+   Audio : YouTube IFrame API (full audio, no key)
+   YT ID : Scrape via allorigins proxy (no key)
+   UX    : Trending hilang saat search, muncul lagi setelah clear
    ============================================================ */
 
+/* Inject hidden YouTube iframe */
 (function(){
-  'use strict';
+  var d=document.createElement('div');
+  d.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;bottom:0;left:0';
+  d.innerHTML='<div id="ytFrame"></div>';
+  document.body.appendChild(d);
+  var s=document.createElement('script');
+  s.src='https://www.youtube.com/iframe_api';
+  document.head.appendChild(s);
+})();
 
-  var mx = {
-    tracks: [], trendingTracks: [], chartTracks: [],
-    idx: 0, repeat: false, shuffle: false,
-    playing: false, loaded: false, searching: false,
-    mode: 'trending',
+(function(){
+'use strict';
+
+var S={
+  homeQ:[],searchQ:[],q:[],
+  i:-1,
+  repeat:false,shuffle:false,
+  playing:false,
+  ytReady:false,yt:null,
+  trendDone:false,
+  mode:'home', /* 'home' or 'search' */
+};
+
+var DZ='https://api.deezer.com';
+var FB="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' rx='16' fill='%231e1e3a'/%3E%3Ccircle cx='40' cy='34' r='16' fill='%232d2d55'/%3E%3Ccircle cx='40' cy='34' r='6' fill='%231e1e3a'/%3E%3Crect x='18' y='54' width='44' height='30' rx='22' fill='%232d2d55'/%3E%3C/svg%3E";
+
+function $i(id){return document.getElementById(id);}
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fmt(s){if(!s||isNaN(s))return'0:00';var m=Math.floor(s/60),sec=Math.floor(s%60);return m+':'+(sec<10?'0':'')+sec;}
+
+/* ── Deezer: works directly from browser, no key needed ── */
+async function dz(path){
+  var r=await fetch(DZ+path);
+  if(!r.ok) throw new Error('Deezer '+r.status);
+  return r.json();
+}
+
+function norm(t){
+  return{
+    id:t.id,
+    title:t.title||'Unknown',
+    artist:(t.artist&&t.artist.name)?t.artist.name:'Unknown',
+    album:(t.album&&t.album.title)||'',
+    cover:(t.album&&(t.album.cover_medium||t.album.cover_big||t.album.cover))||'',
+    duration:t.duration||0,
+    ytId:null,
   };
+}
 
-  var audio = new Audio();
-  audio.crossOrigin = 'anonymous';
-  audio.preload = 'metadata';
+/* ── YouTube ID via allorigins proxy (no key, scrape ytInitialData) ── */
+async function getYtId(query){
+  try{
+    var q=encodeURIComponent(query+' official audio');
+    var ytUrl='https://www.youtube.com/results?search_query='+q;
+    var proxyUrl='https://api.allorigins.win/raw?url='+encodeURIComponent(ytUrl);
+    var r=await fetch(proxyUrl,{signal:AbortSignal.timeout(8000)});
+    var html=await r.text();
+    /* extract first videoId from ytInitialData */
+    var m=html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
+    return m?m[1]:null;
+  }catch(e){return null;}
+}
 
-  function $id(id){ return document.getElementById(id); }
+/* Enrich tracks with YouTube IDs in parallel */
+async function enrich(tracks,limit){
+  limit=limit||15;
+  var slice=tracks.slice(0,limit);
+  await Promise.allSettled(slice.map(async function(t,idx){
+    if(t.ytId) return;
+    var id=await getYtId(t.artist+' '+t.title);
+    t.ytId=id;
+    /* re-render progress as each one resolves */
+    updTrackYtBadge(t,idx);
+  }));
+}
 
-  // Jamendo: audioformat=mp32 = full audio stream (not 30s preview)
-  // DO NOT use audiodownload — it triggers CORS. Use audio field directly.
-  var JAMENDO_CLIENT = 'c5b8e5e9';
+function updTrackYtBadge(t,idx){
+  /* nothing visual needed — plays automatically when ytId resolves */
+}
 
-  function buildUrl(params){
-    var base = 'https://api.jamendo.com/v3.0/tracks/';
-    var q = '?client_id=' + JAMENDO_CLIENT
-          + '&format=json'
-          + '&audioformat=mp32'
-          + '&imagesize=500'
-          + '&include=musicinfo';
-    Object.keys(params).forEach(function(k){
-      q += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
-    });
-    return base + q;
-  }
-
-  function fmtTime(s){
-    if(!s || isNaN(s)) return '0:00';
-    var m = Math.floor(s/60), sec = Math.floor(s%60);
-    return m + ':' + (sec<10?'0':'') + sec;
-  }
-  function escHtml(s){
-    return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  // Use audio field (not audiodownload) — this is the streamable full audio URL
-  function mapTracks(results){
-    return (results||[]).map(function(t){
-      var url = t.audio || '';
-      // Ensure we get the mp3 stream not the download
-      if(url && url.indexOf('audioformat') === -1 && url.indexOf('.mp3') === -1){
-        url = url + (url.indexOf('?') > -1 ? '&' : '?') + 'audioformat=mp32';
-      }
-      return {
-        id: t.id,
-        title: t.name || 'Unknown',
-        artist: t.artist_name || 'Unknown Artist',
-        url: url,
-        art: t.image || '',
-        duration: parseInt(t.duration) || 0,
-        album: t.album_name || ''
-      };
-    }).filter(function(t){ return !!t.url; });
-  }
-
-  var FALLBACK_ART = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'%3E%3Crect width='60' height='60' fill='%233d72f622' rx='14'/%3E%3Cpath d='M22 20h16v16H22z' fill='none' stroke='%233d72f6' stroke-width='2'/%3E%3Ccircle cx='30' cy='28' r='3' fill='%233d72f6'/%3E%3C/svg%3E";
-
-  /* ─── Load Trending & Charts ─── */
-  function loadTrendingAndCharts(){
-    // Always show trending/charts section (don't hide when searching)
-    renderTrendingSkeleton();
-    renderChartsSkeleton();
-
-    var urlTrend = buildUrl({ limit: 10, boost: 'popularity_total', tags: 'pop' });
-    fetch(urlTrend)
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        mx.trendingTracks = mapTracks(data.results);
-        renderTrending(mx.trendingTracks);
-      })
-      .catch(function(){ renderTrending([]); });
-
-    var urlChart = buildUrl({ limit: 12, boost: 'listens_last_month' });
-    fetch(urlChart)
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        mx.chartTracks = mapTracks(data.results);
-        renderCharts(mx.chartTracks);
-      })
-      .catch(function(){ renderCharts([]); });
-  }
-
-  function renderTrendingSkeleton(){
-    var wrap = $id('mpTrendingWrap');
-    if(!wrap) return;
-    wrap.innerHTML = [1,2,3,4].map(function(){
-      return '<div class="mp-trending-card">'
-        + '<div class="mp-trending-thumb mp-skel" style="height:150px"></div>'
-        + '<div class="mp-skel" style="height:12px;width:105px;margin-top:9px;border-radius:6px"></div>'
-        + '<div class="mp-skel" style="height:10px;width:72px;margin-top:5px;border-radius:5px"></div>'
-        + '</div>';
-    }).join('');
-  }
-
-  function renderChartsSkeleton(){
-    var wrap = $id('mpChartsWrap');
-    if(!wrap) return;
-    wrap.innerHTML = [1,2,3,4,5].map(function(i){
-      return '<div class="mp-charts-item">'
-        + '<div class="mp-charts-num">' + i + '</div>'
-        + '<div class="mp-skel" style="width:52px;height:52px;border-radius:13px;flex-shrink:0"></div>'
-        + '<div style="flex:1;display:flex;flex-direction:column;gap:5px;padding-left:4px">'
-        + '<div class="mp-skel" style="height:12px;width:140px;border-radius:5px"></div>'
-        + '<div class="mp-skel" style="height:10px;width:90px;border-radius:5px"></div>'
-        + '</div></div>';
-    }).join('');
-  }
-
-  function renderTrending(tracks){
-    var wrap = $id('mpTrendingWrap');
-    if(!wrap) return;
-    if(!tracks.length){
-      wrap.innerHTML = '<div class="mp-empty" style="padding:16px">Gagal memuat trending. Cek koneksi.</div>';
-      return;
-    }
-    wrap.innerHTML = tracks.map(function(t, i){
-      var art = escHtml(t.art || FALLBACK_ART);
-      var isActive = mx.mode==='trending' && mx.loaded && mx.idx===i;
-      return '<div class="mp-trending-card' + (isActive?' active':'') + '" onclick="musicPlayTrending(' + i + ')" id="mpTrend_'+i+'">'
-        + '<div class="mp-trending-thumb">'
-        + '<img src="' + art + '" alt="" onerror="this.src=\'' + FALLBACK_ART + '\'" style="width:100%;height:100%;object-fit:cover;border-radius:18px">'
-        + '<div class="mp-trending-thumb-overlay"></div>'
-        + '<div class="mp-trending-play-btn"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>'
-        + '<div class="mp-trending-playing-badge' + (isActive && mx.playing?' show':'') + '">'
-        + '<div class="music-eq' + (isActive && mx.playing?' active':'') + '"><span></span><span></span><span></span></div>'
-        + '</div></div>'
-        + '<div class="mp-trending-name">' + escHtml(t.title) + '</div>'
-        + '<div class="mp-trending-artist">' + escHtml(t.artist) + '</div>'
-        + '</div>';
-    }).join('');
-  }
-
-  function renderCharts(tracks){
-    var wrap = $id('mpChartsWrap');
-    if(!wrap) return;
-    if(!tracks.length){
-      wrap.innerHTML = '<div class="mp-empty">Gagal memuat charts</div>';
-      return;
-    }
-    wrap.innerHTML = tracks.map(function(t, i){
-      var art = escHtml(t.art || FALLBACK_ART);
-      var isActive = mx.mode==='chart' && mx.loaded && mx.idx===i;
-      return '<div class="mp-charts-item' + (isActive?' active':'') + '" onclick="musicPlayChart(' + i + ')" id="mpChart_'+i+'">'
-        + '<div class="mp-charts-num">' + (i+1) + '</div>'
-        + '<img class="mp-charts-art" src="' + art + '" alt="" onerror="this.src=\'' + FALLBACK_ART + '\'">'
-        + '<div class="mp-charts-info">'
-        + '<div class="mp-charts-title">' + escHtml(t.title) + '</div>'
-        + '<div class="mp-charts-artist">' + escHtml(t.artist) + '</div>'
-        + '</div>'
-        + '<div class="mp-charts-eq">'
-        + (isActive ? '<div class="music-eq' + (mx.playing?' active':'') + '"><span></span><span></span><span></span></div>' : '')
-        + '</div></div>';
-    }).join('');
-  }
-
-  window.musicPlayTrending = function(i){
-    mx.mode = 'trending';
-    mx.tracks = mx.trendingTracks;
-    musicLoad(i, true);
-    updateAllActiveUI();
-  };
-
-  window.musicPlayChart = function(i){
-    mx.mode = 'chart';
-    mx.tracks = mx.chartTracks;
-    musicLoad(i, true);
-    updateAllActiveUI();
-  };
-
-  /* ─── Search ─── */
-  function musicSearch(){
-    var inp = $id('mpSearchInput');
-    var q = inp ? inp.value.trim() : '';
-    if(!q) return;
-
-    mx.searching = true;
-    var btn = $id('mpSearchBtn');
-    if(btn){ btn.textContent = '...'; btn.disabled = true; }
-
-    var list = $id('mpTrackList');
-    if(list){
-      list.style.display = 'block';
-      list.innerHTML = '<div class="mp-empty">Mencari "<b>' + escHtml(q) + '</b>"...</div>';
-    }
-
-    // Trending & charts stay visible during search — only results list is added above
-
-    var url = buildUrl({ limit: 20, search: q, boost: 'popularity_total' });
-    fetch(url)
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        mx.searching = false;
-        if(btn){ btn.textContent = 'Cari'; btn.disabled = false; }
-        var results = mapTracks(data.results);
-        if(!results.length){
-          // fallback: search by tags
-          var url2 = buildUrl({ limit: 20, tags: q });
-          return fetch(url2)
-            .then(function(r){ return r.json(); })
-            .then(function(d){
-              var r2 = mapTracks(d.results);
-              if(!r2.length){
-                if(list) list.innerHTML = '<div class="mp-empty">Tidak ada hasil untuk "<b>' + escHtml(q) + '</b>"<br><span style="font-size:11px;opacity:0.6">Coba: pop, jazz, lofi, rock, electronic</span></div>';
-                return;
-              }
-              mx.mode = 'search'; mx.tracks = r2;
-              renderSearchResults(r2, q);
-            });
+/* ── YouTube IFrame ── */
+window.onYouTubeIframeAPIReady=function(){
+  S.yt=new YT.Player('ytFrame',{
+    height:'1',width:'1',
+    playerVars:{autoplay:0,controls:0,disablekb:1,fs:0,rel:0,modestbranding:1,playsinline:1},
+    events:{
+      onReady:function(){S.ytReady=true;},
+      onStateChange:function(e){
+        if(e.data===YT.PlayerState.PLAYING){S.playing=true;updAllUI();startTick();}
+        else if(e.data===YT.PlayerState.PAUSED){S.playing=false;updAllUI();stopTick();}
+        else if(e.data===YT.PlayerState.ENDED){
+          stopTick();
+          S.playing=false;
+          if(S.repeat){S.yt.playVideo();}else{musicNext();}
         }
-        mx.mode = 'search'; mx.tracks = results;
-        renderSearchResults(results, q);
-        // scroll results ke atas
-        if(list) list.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      })
-      .catch(function(){
-        mx.searching = false;
-        if(btn){ btn.textContent = 'Cari'; btn.disabled = false; }
-        if(list) list.innerHTML = '<div class="mp-empty">Tidak bisa terhubung ke server musik</div>';
-      });
-  }
-
-  function renderSearchResults(tracks, q){
-    var list = $id('mpTrackList');
-    if(!list) return;
-    var label = '<div class="mp-list-label">' + tracks.length + ' LAGU' + (q ? ' — "' + escHtml(q) + '"' : '') + '</div>';
-    var items = tracks.map(function(t, i){
-      var dur = t.duration ? fmtTime(t.duration) : '';
-      var art = escHtml(t.art || FALLBACK_ART);
-      var isPlaying = mx.mode==='search' && mx.loaded && mx.idx===i;
-      return '<div class="mp-track' + (isPlaying?' playing':'') + '" onclick="musicLoadIdx(' + i + ')" id="mpSr_'+i+'">'
-        + '<img class="mp-track-art" src="' + art + '" alt="" onerror="this.src=\'' + FALLBACK_ART + '\'">'
-        + '<div class="mp-track-info">'
-        + '<div class="mp-track-title">' + escHtml(t.title) + '</div>'
-        + '<div class="mp-track-artist">' + escHtml(t.artist) + '</div>'
-        + '</div>'
-        + '<div class="mp-track-dur">' + dur + '</div>'
-        + '<div class="mp-track-play-icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>'
-        + '</div>';
-    }).join('');
-    list.innerHTML = label + items;
-    list.style.display = 'block';
-  }
-
-  /* ─── Core load/play ─── */
-  function musicLoad(idx, autoplay){
-    if(!mx.tracks.length) return;
-    idx = ((idx % mx.tracks.length) + mx.tracks.length) % mx.tracks.length;
-    mx.idx = idx;
-    var t = mx.tracks[idx];
-
-    // Set source and load
-    audio.src = t.url;
-    audio.load();
-    mx.loaded = true;
-
-    updatePlayerBar(t);
-    updateAllActiveUI();
-    updateSidebarIndicator();
-
-    if(autoplay !== false){
-      var playPromise = audio.play();
-      if(playPromise !== undefined){
-        playPromise.then(function(){
-          mx.playing = true;
-          updatePlayIcons();
-          updateAllActiveUI();
-          updateSidebarIndicator();
-        }).catch(function(e){
-          console.log('Autoplay blocked:', e.message);
-          // Try again after short delay (mobile browsers)
-          setTimeout(function(){
-            audio.play().then(function(){
-              mx.playing = true;
-              updatePlayIcons();
-              updateAllActiveUI();
-              updateSidebarIndicator();
-            }).catch(function(){});
-          }, 300);
-        });
+      },
+      onError:function(){
+        var ar=$i('mpbArtist');
+        if(ar)ar.textContent='Tidak tersedia, skip...';
+        setTimeout(musicNext,1200);
       }
     }
-  }
+  });
+};
 
-  function musicTogglePlay(){
-    if(!mx.loaded || !mx.tracks.length) return;
-    if(mx.playing){
-      audio.pause();
-      mx.playing = false;
-      updatePlayIcons();
-      updateAllActiveUI();
-      updateSidebarIndicator();
-    } else {
-      audio.play()
-        .then(function(){
-          mx.playing = true;
-          updatePlayIcons();
-          updateAllActiveUI();
-          updateSidebarIndicator();
-        })
-        .catch(function(e){ console.log('Play failed:', e); });
-    }
-  }
+var _tick;
+function startTick(){
+  stopTick();
+  _tick=setInterval(function(){
+    if(!S.yt||!S.playing)return;
+    var c=0,d=1;
+    try{c=S.yt.getCurrentTime()||0;d=S.yt.getDuration()||1;}catch(e){return;}
+    var p=(c/d)*100;
+    var f=$i('mpbProgressFill');if(f)f.style.width=p+'%';
+    var ct=$i('mpbCurTime');if(ct)ct.textContent=fmt(c);
+    var dt=$i('mpbDurTime');if(dt)dt.textContent=fmt(d);
+  },500);
+}
+function stopTick(){clearInterval(_tick);}
 
-  function musicNext(){
-    if(!mx.tracks.length) return;
-    var next;
-    if(mx.shuffle){
-      next = Math.floor(Math.random() * mx.tracks.length);
-      if(next === mx.idx && mx.tracks.length > 1) next = (next + 1) % mx.tracks.length;
-    } else {
-      next = (mx.idx + 1) % mx.tracks.length;
-    }
-    musicLoad(next, true);
+/* ── Trending ── */
+async function loadTrendingAndCharts(){
+  if(S.trendDone)return;
+  try{
+    var d=await dz('/chart/0/tracks?limit=30');
+    var tracks=(d.data||[]).map(norm);
+    S.homeQ=tracks;
+    S.trendDone=true;
+    renderTrending(tracks.slice(0,8));
+    renderCharts(tracks.slice(0,15));
+    enrich(tracks,20).then(function(){
+      if(S.mode==='home'){
+        renderTrending(S.homeQ.slice(0,8));
+        renderCharts(S.homeQ.slice(0,15));
+      }
+    });
+  }catch(e){
+    var w=$i('mpTrendingWrap');
+    if(w)w.innerHTML='<div class="mp-empty">Gagal memuat. Cek koneksi internet.</div>';
   }
+}
 
-  function musicPrev(){
-    if(!mx.tracks.length) return;
-    if(audio.currentTime > 3){
-      audio.currentTime = 0;
+function renderTrending(tracks){
+  var w=$i('mpTrendingWrap');if(!w)return;
+  if(!tracks||!tracks.length){w.innerHTML='<div class="mp-empty" style="padding:16px">Memuat...</div>';return;}
+  w.innerHTML=tracks.map(function(t,i){
+    var cov=esc(t.cover||FB);
+    var isA=S.q===S.homeQ&&S.i===i;
+    return '<div class="mp-trending-card'+(isA?' active':'')+'" onclick="musicPlayHome('+i+')" id="mpTr_'+i+'">'
+      +'<div class="mp-trending-thumb">'
+      +'<img src="'+cov+'" alt="" onerror="this.src=\''+FB+'\'" style="width:100%;height:100%;object-fit:cover;border-radius:18px;display:block;">'
+      +'<div class="mp-trending-thumb-overlay"></div>'
+      +'<div class="mp-trending-play-btn"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>'
+      +'<div class="mp-trending-playing-badge'+(isA&&S.playing?' show':'')+'"><div class="music-eq'+(isA&&S.playing?' active':'')+'"><span></span><span></span><span></span></div></div>'
+      +'</div>'
+      +'<div class="mp-trending-name">'+esc(t.title)+'</div>'
+      +'<div class="mp-trending-artist">'+esc(t.artist)+'</div>'
+      +'</div>';
+  }).join('');
+}
+
+function renderCharts(tracks){
+  var w=$i('mpChartsWrap');if(!w)return;
+  if(!tracks||!tracks.length){w.innerHTML='';return;}
+  w.innerHTML=tracks.map(function(t,i){
+    var cov=esc(t.cover||FB);
+    var isA=S.q===S.homeQ&&S.i===i;
+    return '<div class="mp-charts-item'+(isA?' active':'')+'" onclick="musicPlayHome('+i+')" id="mpCh_'+i+'">'
+      +'<div class="mp-charts-num">'+(i+1)+'</div>'
+      +'<img class="mp-charts-art" src="'+cov+'" alt="" onerror="this.src=\''+FB+'\'">'
+      +'<div class="mp-charts-info"><div class="mp-charts-title">'+esc(t.title)+'</div><div class="mp-charts-artist">'+esc(t.artist)+'</div></div>'
+      +'<div class="mp-charts-eq">'+(isA?'<div class="music-eq'+(S.playing?' active':'')+'"><span></span><span></span><span></span></div>':'')+'</div>'
+      +'</div>';
+  }).join('');
+}
+
+/* ── Search — trending disembunyikan, muncul lagi saat clear ── */
+window.musicSearch=async function(){
+  var inp=$i('mpSearchInput');
+  var q=inp?inp.value.trim():'';
+  if(!q)return;
+
+  /* Sembunyikan trending & charts section */
+  S.mode='search';
+  setTrendingVisible(false);
+
+  var btn=$i('mpSearchBtn');
+  var sec=$i('mpSearchSection');
+  var list=$i('mpTrackList');
+  var clr=$i('mpSearchClear');
+
+  if(btn){btn.textContent='...';btn.disabled=true;}
+  if(sec)sec.style.display='block';
+  if(list)list.innerHTML='<div class="mp-empty">Mencari '+esc(q)+'...</div>';
+  if(clr)clr.style.display='flex';
+
+  try{
+    var d=await dz('/search?q='+encodeURIComponent(q)+'&limit=30');
+    var tracks=(d.data||[]).map(norm);
+    if(!tracks.length){
+      if(list)list.innerHTML='<div class="mp-empty">Tidak ada hasil untuk "'+esc(q)+'"</div>';
+      if(btn){btn.textContent='Cari';btn.disabled=false;}
       return;
     }
-    musicLoad((mx.idx - 1 + mx.tracks.length) % mx.tracks.length, true);
+    S.searchQ=tracks;
+    renderSearchList(tracks,q);
+    if(btn){btn.textContent='Cari';btn.disabled=false;}
+    var body=$i('mpBody');if(body)body.scrollTop=0;
+    /* enrich YouTube IDs in background */
+    enrich(tracks,20);
+  }catch(e){
+    if(list)list.innerHTML='<div class="mp-empty">Gagal terhubung. Cek koneksi.</div>';
+    if(btn){btn.textContent='Cari';btn.disabled=false;}
   }
+};
 
-  function musicSeek(e){
-    var bar = $id('mpbProgress');
-    if(!bar || !audio.duration || isNaN(audio.duration)) return;
-    var rect = bar.getBoundingClientRect();
-    var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    audio.currentTime = pct * audio.duration;
+function renderSearchList(tracks,q){
+  var list=$i('mpTrackList');if(!list)return;
+  var label='<div class="mp-list-label">'+tracks.length+' HASIL — '+esc(q)+'</div>';
+  var items=tracks.map(function(t,i){
+    var cov=esc(t.cover||FB);
+    var isP=S.q===S.searchQ&&S.i===i;
+    var dur=t.duration?fmt(t.duration):'';
+    return '<div class="mp-track'+(isP?' playing':'')+'" onclick="musicLoadSearch('+i+')" id="mpSr_'+i+'">'
+      +'<img class="mp-track-art" src="'+cov+'" alt="" onerror="this.src=\''+FB+'\'">'
+      +'<div class="mp-track-info"><div class="mp-track-title">'+esc(t.title)+'</div><div class="mp-track-artist">'+esc(t.artist)+'</div></div>'
+      +'<div class="mp-track-dur">'+dur+'</div>'
+      +'<div class="mp-track-play-icon"><svg viewBox="0 0 24 24" fill="currentColor">'
+      +(isP&&S.playing?'<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>':'<polygon points="5 3 19 12 5 21 5 3"/>')
+      +'</svg></div>'
+      +'</div>';
+  }).join('');
+  list.innerHTML=label+items;
+}
+
+/* Clear search → sembunyikan hasil, munculkan trending kembali */
+window.musicClearSearch=function(){
+  var inp=$i('mpSearchInput');
+  var sec=$i('mpSearchSection');
+  var clr=$i('mpSearchClear');
+  if(inp)inp.value='';
+  if(sec)sec.style.display='none';
+  if(clr)clr.style.display='none';
+  S.mode='home';
+  setTrendingVisible(true);
+};
+
+function setTrendingVisible(show){
+  var sections=[
+    $i('mpTrendingLabel'),
+    $i('mpTrendingWrap'),
+    $i('mpChartsLabel'),
+    $i('mpChartsWrap'),
+  ];
+  sections.forEach(function(el){
+    if(el)el.style.display=show?'':'none';
+  });
+}
+
+/* ── Play engine ── */
+function play(qi){
+  if(qi<0||qi>=S.q.length)return;
+  var t=S.q[qi];
+  S.i=qi;
+  updPlayerBar(t);
+  updAllUI();
+  if(!t.ytId){
+    /* Tunggu enrich selesai (polling 500ms, max 15 detik) */
+    var tries=0;
+    var poll=setInterval(function(){
+      tries++;
+      var cur=S.q[qi];
+      if(cur&&cur.ytId){
+        clearInterval(poll);
+        if(S.i===qi) doPlay(cur);
+      } else if(tries>30){
+        clearInterval(poll);
+        var ar=$i('mpbArtist');
+        if(ar)ar.textContent='Audio tidak tersedia';
+      }
+    },500);
+    return;
   }
+  doPlay(t);
+}
 
-  function musicSetVolume(v){
-    audio.volume = parseInt(v, 10) / 100;
+function doPlay(t){
+  if(!S.ytReady||!S.yt){
+    setTimeout(function(){doPlay(t);},500);
+    return;
   }
+  S.yt.loadVideoById(t.ytId);
+}
 
-  function musicToggleRepeat(){
-    mx.repeat = !mx.repeat;
-    audio.loop = mx.repeat;
-    var btn = $id('mpbRepeatBtn');
-    if(btn) btn.classList.toggle('active', mx.repeat);
+window.musicPlayHome=function(i){S.q=S.homeQ;play(i);};
+window.musicLoadSearch=function(i){S.q=S.searchQ;play(i);};
+
+window.musicTogglePlay=function(){
+  if(!S.yt||S.i<0)return;
+  S.playing?S.yt.pauseVideo():S.yt.playVideo();
+};
+
+window.musicNext=function(){
+  if(!S.q.length)return;
+  var n=S.shuffle?Math.floor(Math.random()*S.q.length):(S.i+1)%S.q.length;
+  play(n);
+};
+
+window.musicPrev=function(){
+  if(!S.q.length)return;
+  try{if(S.yt&&S.yt.getCurrentTime()>3){S.yt.seekTo(0);return;}}catch(e){}
+  play((S.i-1+S.q.length)%S.q.length);
+};
+
+window.musicSeek=function(e){
+  var bar=$i('mpbProgress');
+  if(!bar||!S.yt||!S.ytReady)return;
+  var rect=bar.getBoundingClientRect();
+  var p=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+  try{var d=S.yt.getDuration();if(d)S.yt.seekTo(p*d);}catch(err){}
+};
+
+window.musicSetVolume=function(v){
+  try{if(S.yt&&S.ytReady)S.yt.setVolume(parseInt(v));}catch(e){}
+};
+
+window.musicToggleRepeat=function(){
+  S.repeat=!S.repeat;
+  var b=$i('mpbRepeatBtn');
+  if(b)b.classList.toggle('active',S.repeat);
+};
+
+window.musicToggleShuffle=function(){
+  S.shuffle=!S.shuffle;
+  var b=$i('mpbShuffleBtn');
+  if(b)b.classList.toggle('active',S.shuffle);
+};
+
+/* ── UI ── */
+function updPlayerBar(t){
+  var bar=$i('mpPlayerBar');if(bar)bar.classList.add('has-track');
+  var art=$i('mpbArt');if(art){art.src=t.cover||FB;art.onerror=function(){this.src=FB;};}
+  var ti=$i('mpbTitle');if(ti)ti.textContent=t.title||'—';
+  var ar=$i('mpbArtist');if(ar)ar.textContent=t.artist||'';
+  var f=$i('mpbProgressFill');if(f)f.style.width='0%';
+  var c=$i('mpbCurTime');if(c)c.textContent='0:00';
+  var d=$i('mpbDurTime');if(d)d.textContent=t.duration?fmt(t.duration):'0:00';
+}
+
+function updPlayBtn(){
+  var ic=$i('mpbPlayIcon');if(!ic)return;
+  ic.innerHTML=S.playing
+    ?'<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
+    :'<polygon points="5 3 19 12 5 21 5 3"/>';
+}
+
+function updAllUI(){
+  updPlayBtn();
+  document.querySelectorAll('.mp-trending-card').forEach(function(el,i){
+    var a=S.q===S.homeQ&&S.i===i;
+    el.classList.toggle('active',a);
+    var badge=el.querySelector('.mp-trending-playing-badge');
+    var eq=el.querySelector('.music-eq');
+    if(badge)badge.classList.toggle('show',a&&S.playing);
+    if(eq)eq.classList.toggle('active',a&&S.playing);
+  });
+  document.querySelectorAll('.mp-charts-item').forEach(function(el,i){
+    var a=S.q===S.homeQ&&S.i===i;
+    el.classList.toggle('active',a);
+    var ew=el.querySelector('.mp-charts-eq');
+    if(ew)ew.innerHTML=a?'<div class="music-eq'+(S.playing?' active':'')+'"><span></span><span></span><span></span></div>':'';
+  });
+  document.querySelectorAll('.mp-track').forEach(function(el,i){
+    var p=S.q===S.searchQ&&S.i===i;
+    el.classList.toggle('playing',p);
+    var svg=el.querySelector('.mp-track-play-icon svg');
+    if(svg)svg.innerHTML=(p&&S.playing)
+      ?'<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
+      :'<polygon points="5 3 19 12 5 21 5 3"/>';
+  });
+  var eq=$i('sbMusicEq'),sub=$i('sbMusicSub');
+  if(S.i>=0&&S.q[S.i]){
+    if(sub)sub.textContent=S.q[S.i].title;
+    if(eq)eq.classList.toggle('active',S.playing);
+  }else{
+    if(sub)sub.textContent='Music';
+    if(eq)eq.classList.remove('active');
   }
+}
 
-  function musicToggleShuffle(){
-    mx.shuffle = !mx.shuffle;
-    var btn = $id('mpbShuffleBtn');
-    if(btn) btn.classList.toggle('active', mx.shuffle);
-  }
+/* ── Page open/close ── */
+window.openMusicPage=function(){
+  var p=$i('musicPage');if(!p)return;
+  p.classList.remove('out','show');
+  p.style.display='flex';
+  void p.offsetWidth;
+  p.classList.add('show');
+  loadTrendingAndCharts();
+};
+window.closeMusicPage=function(){
+  var p=$i('musicPage');if(!p)return;
+  p.classList.remove('show');
+  p.classList.add('out');
+  setTimeout(function(){p.style.display='none';p.classList.remove('show','out');},260);
+};
 
-  /* ─── Audio events ─── */
-  audio.addEventListener('ended', function(){
-    if(!mx.repeat) musicNext();
-  });
-
-  audio.addEventListener('timeupdate', function(){
-    if(!audio.duration || isNaN(audio.duration)) return;
-    var pct = (audio.currentTime / audio.duration * 100).toFixed(2);
-    var fill = $id('mpbProgressFill');
-    if(fill) fill.style.width = pct + '%';
-    var cur = $id('mpbCurTime');
-    if(cur) cur.textContent = fmtTime(audio.currentTime);
-  });
-
-  audio.addEventListener('loadedmetadata', function(){
-    var dur = $id('mpbDurTime');
-    if(dur) dur.textContent = fmtTime(audio.duration);
-  });
-
-  audio.addEventListener('durationchange', function(){
-    var dur = $id('mpbDurTime');
-    if(dur && audio.duration && !isNaN(audio.duration)){
-      dur.textContent = fmtTime(audio.duration);
-    }
-  });
-
-  audio.addEventListener('play', function(){
-    mx.playing = true;
-    updatePlayIcons();
-    updateAllActiveUI();
-    updateSidebarIndicator();
-  });
-
-  audio.addEventListener('pause', function(){
-    mx.playing = false;
-    updatePlayIcons();
-    updateAllActiveUI();
-    updateSidebarIndicator();
-  });
-
-  audio.addEventListener('error', function(e){
-    console.warn('Audio error:', e);
-    // Try next track if current fails
-    if(mx.tracks.length > 1){
-      setTimeout(function(){ musicNext(); }, 1000);
-    }
-  });
-
-  /* ─── UI helpers ─── */
-  function updatePlayIcons(){
-    var playPath = mx.playing
-      ? '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
-      : '<polygon points="5 3 19 12 5 21 5 3"/>';
-    var el = $id('mpbPlayIcon');
-    if(el) el.innerHTML = playPath;
-  }
-
-  function updatePlayerBar(t){
-    var bar = $id('mpPlayerBar');
-    if(bar) bar.classList.add('has-track');
-
-    var art = $id('mpbArt');
-    if(art){ art.src = t.art || FALLBACK_ART; }
-
-    var title = $id('mpbTitle');
-    if(title) title.textContent = t.title || '—';
-
-    var artist = $id('mpbArtist');
-    if(artist) artist.textContent = t.artist || '';
-
-    var dur = $id('mpbDurTime');
-    if(dur) dur.textContent = t.duration ? fmtTime(t.duration) : '—:——';
-
-    var fill = $id('mpbProgressFill');
-    if(fill) fill.style.width = '0%';
-
-    var cur = $id('mpbCurTime');
-    if(cur) cur.textContent = '0:00';
-  }
-
-  function updateAllActiveUI(){
-    // Trending cards
-    document.querySelectorAll('.mp-trending-card').forEach(function(el, i){
-      var isActive = mx.mode === 'trending' && mx.idx === i && mx.loaded;
-      el.classList.toggle('active', isActive);
-      var badge = el.querySelector('.mp-trending-playing-badge');
-      var eq = el.querySelector('.music-eq');
-      if(badge) badge.classList.toggle('show', isActive && mx.playing);
-      if(eq) eq.classList.toggle('active', isActive && mx.playing);
-    });
-
-    // Chart items
-    document.querySelectorAll('.mp-charts-item').forEach(function(el, i){
-      var isActive = mx.mode === 'chart' && mx.idx === i && mx.loaded;
-      el.classList.toggle('active', isActive);
-      var eqWrap = el.querySelector('.mp-charts-eq');
-      if(eqWrap){
-        if(isActive){
-          eqWrap.innerHTML = '<div class="music-eq' + (mx.playing ? ' active' : '') + '"><span></span><span></span><span></span></div>';
-        } else {
-          eqWrap.innerHTML = '';
-        }
+/* ── Init ── */
+document.addEventListener('DOMContentLoaded',function(){
+  var inp=$i('mpSearchInput');
+  if(inp){
+    inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();window.musicSearch();}});
+    inp.addEventListener('input',function(){
+      var clr=$i('mpSearchClear');
+      if(clr)clr.style.display=this.value?'flex':'none';
+      /* Kalau input dikosongkan manual → munculkan trending */
+      if(!this.value.trim()){
+        var sec=$i('mpSearchSection');
+        if(sec)sec.style.display='none';
+        S.mode='home';
+        setTrendingVisible(true);
       }
     });
-
-    // Search results
-    document.querySelectorAll('.mp-track').forEach(function(el, i){
-      var isP = mx.mode === 'search' && mx.idx === i && mx.loaded;
-      el.classList.toggle('playing', isP);
-      var pi = el.querySelector('.mp-track-play-icon svg');
-      if(pi){
-        pi.innerHTML = (isP && mx.playing)
-          ? '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
-          : '<polygon points="5 3 19 12 5 21 5 3"/>';
-      }
-    });
   }
+});
 
-  function updateSidebarIndicator(){
-    var eq = $id('sbMusicEq');
-    var sub = $id('sbMusicSub');
-    if(mx.loaded && mx.playing){
-      if(eq) eq.classList.add('active');
-      if(sub && mx.tracks[mx.idx]) sub.textContent = mx.tracks[mx.idx].title;
-    } else {
-      if(eq) eq.classList.remove('active');
-      if(sub){
-        if(mx.loaded && mx.tracks[mx.idx]) sub.textContent = mx.tracks[mx.idx].title;
-        else sub.textContent = 'Music';
-      }
-    }
-  }
-
-  /* ─── Page toggle ─── */
-  window.openMusicPage = function(){
-    var p = $id('musicPage');
-    if(!p) return;
-    p.classList.remove('out', 'show');
-    p.style.display = 'flex';
-    void p.offsetWidth;
-    p.classList.add('show');
-    loadTrendingAndCharts();
-    // Hide search results on open — show trending/charts
-    var list = $id('mpTrackList');
-    if(list && !mx.searching) list.style.display = 'none';
-    var inp = $id('mpSearchInput');
-    if(inp) inp.value = '';
-  };
-
-  window.closeMusicPage = function(){
-    var p = $id('musicPage');
-    if(!p) return;
-    p.classList.remove('show');
-    p.classList.add('out');
-    setTimeout(function(){ p.style.display = 'none'; p.classList.remove('show', 'out'); }, 260);
-  };
-
-  /* ─── Globals ─── */
-  window.musicSearch    = musicSearch;
-  window.musicTogglePlay  = musicTogglePlay;
-  window.musicNext      = musicNext;
-  window.musicPrev      = musicPrev;
-  window.musicSeek      = musicSeek;
-  window.musicSetVolume   = musicSetVolume;
-  window.musicToggleRepeat  = musicToggleRepeat;
-  window.musicToggleShuffle = musicToggleShuffle;
-  window.musicLoadIdx = function(i){
-    mx.mode = 'search';
-    musicLoad(i, true);
-    updateAllActiveUI();
-  };
-
-  document.addEventListener('DOMContentLoaded', function(){
-    var inp = $id('mpSearchInput');
-    if(inp){
-      inp.addEventListener('keydown', function(e){
-        if(e.key === 'Enter'){ e.preventDefault(); musicSearch(); }
-      });
-    }
-    audio.volume = 0.8;
-    // Init repeat button state
-    var repBtn = $id('mpbRepeatBtn');
-    if(repBtn) repBtn.classList.toggle('active', mx.repeat);
-  });
-
-  window.addEventListener('beforeunload', function(){ audio.pause(); audio.src = ''; });
+window.addEventListener('beforeunload',function(){
+  try{if(S.yt&&S.ytReady)S.yt.stopVideo();}catch(e){}
+});
 
 })();
 </script>
