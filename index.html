@@ -1914,12 +1914,6 @@ body.light #mpPlayerBar{background:rgba(240,244,255,0.97);border-top-color:rgba(
 .mpb-info{flex:1;min-width:0}
 .mpb-title{font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mpb-artist{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mpb-full-tag{
-  font-size:9px;font-weight:700;letter-spacing:1px;
-  background:rgba(16,185,129,0.15);color:#10b981;
-  border:1px solid rgba(16,185,129,0.3);
-  border-radius:5px;padding:2px 5px;flex-shrink:0;
-}
 
 /* Progress bar */
 .mpb-progress-bg{
@@ -2152,7 +2146,7 @@ body.light #mpbVolume{background:rgba(0,0,0,0.12)}
         <div class="mpb-title" id="mpbTitle">Pilih lagu untuk diputar</div>
         <div class="mpb-artist" id="mpbArtist"></div>
       </div>
-      <div class="mpb-full-tag">FULL</div>
+
     </div>
     <div class="mpb-progress-wrap" id="mpbProgress" onclick="musicSeek(event)">
       <div class="mpb-progress-bg"></div>
@@ -5407,24 +5401,11 @@ function startNameCanvas(){
 </script>
 <script>
 /* ============================================================
-   AIVA MUSIC PLAYER v5
-   Data  : iTunes Search API (CORS ok, no key, gratis)
-           → cover 600px, title, artist, album, duration
-   Audio : YouTube IFrame (full, no key)
-   YT ID : Invidious public API (CORS ok, no key)
-           fallback: cari manual via youtube embed
+   AIVA MUSIC PLAYER v7
+   Data  : iTunes Search API + iTunes Top RSS
+   Audio : YouTube IFrame — loadPlaylist(listType:'search')
+           User harus tap Play setelah pilih lagu (mobile policy)
    ============================================================ */
-
-/* Hidden YouTube iframe */
-(function(){
-  var d=document.createElement('div');
-  d.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;bottom:0;left:0';
-  d.innerHTML='<div id="ytFrame"></div>';
-  document.body.appendChild(d);
-  var s=document.createElement('script');
-  s.src='https://www.youtube.com/iframe_api';
-  document.head.appendChild(s);
-})();
 
 (function(){
 'use strict';
@@ -5437,17 +5418,8 @@ var S={
   ytReady:false,yt:null,
   trendDone:false,
   mode:'home',
+  loaded:false,
 };
-
-/* Invidious instances - CORS enabled, no key */
-var INV_INSTANCES=[
-  'https://invidious.kavin.rocks',
-  'https://inv.riverside.rocks',
-  'https://invidious.nerdvpn.de',
-  'https://yt.artemislena.eu',
-  'https://invidious.privacydev.net',
-];
-var invIdx=0;
 
 var FB="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' rx='16' fill='%231e1e3a'/%3E%3Ccircle cx='40' cy='34' r='16' fill='%232d2d55'/%3E%3Ccircle cx='40' cy='34' r='6' fill='%231e1e3a'/%3E%3Crect x='18' y='54' width='44' height='30' rx='22' fill='%232d2d55'/%3E%3C/svg%3E";
 
@@ -5455,99 +5427,92 @@ function $i(id){return document.getElementById(id);}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function fmt(s){if(!s||isNaN(s))return'0:00';var m=Math.floor(s/60),sec=Math.floor(s%60);return m+':'+(sec<10?'0':'')+sec;}
 
-/* ── iTunes Search API (100% CORS enabled dari browser) ── */
-async function itunesSearch(q, limit){
-  limit = limit||25;
-  var url='https://itunes.apple.com/search?term='+encodeURIComponent(q)
-    +'&entity=song&limit='+limit+'&country=US';
-  var r=await fetch(url,{signal:AbortSignal.timeout(10000)});
-  if(!r.ok) throw new Error('iTunes '+r.status);
+/* ── iTunes ── */
+async function itunesSearch(q,limit){
+  var r=await fetch('https://itunes.apple.com/search?term='+encodeURIComponent(q)+'&entity=song&limit='+(limit||25)+'&country=US',{signal:AbortSignal.timeout(10000)});
+  if(!r.ok)throw 0;
   return r.json();
 }
-
 async function itunesTop(limit){
-  /* iTunes RSS top songs — no key needed */
-  limit=limit||25;
-  var url='https://itunes.apple.com/us/rss/topsongs/limit='+limit+'/json';
-  var r=await fetch(url,{signal:AbortSignal.timeout(10000)});
-  if(!r.ok) throw new Error('iTunes RSS '+r.status);
+  var r=await fetch('https://itunes.apple.com/us/rss/topsongs/limit='+(limit||25)+'/json',{signal:AbortSignal.timeout(10000)});
+  if(!r.ok)throw 0;
   return r.json();
 }
-
 function normItunes(t){
-  /* cover: replace 100x100 → 600x600 */
-  var cover=(t.artworkUrl100||t.artworkUrl60||'').replace('100x100','600x600').replace('60x60','600x600');
-  return{
-    id:String(t.trackId||Math.random()),
-    title:t.trackName||'Unknown',
-    artist:t.artistName||'Unknown',
-    album:t.collectionName||'',
-    cover:cover,
-    duration:Math.round((t.trackTimeMillis||0)/1000),
-    ytId:null,
-  };
+  var c=(t.artworkUrl100||'').replace('100x100bb','600x600bb').replace('100x100','600x600');
+  return{id:String(t.trackId),title:t.trackName||'Unknown',artist:t.artistName||'Unknown',
+    album:t.collectionName||'',cover:c,duration:Math.round((t.trackTimeMillis||0)/1000)};
 }
-
-function normItunesRSS(entry){
-  var img=(entry['im:image']&&entry['im:image'][2])?entry['im:image'][2].label:'';
-  return{
-    id:String(Math.random()),
-    title:(entry['im:name']&&entry['im:name'].label)||'Unknown',
-    artist:(entry['im:artist']&&entry['im:artist'].label)||'Unknown',
-    album:(entry['im:collection']&&entry['im:collection']['im:name']&&entry['im:collection']['im:name'].label)||'',
-    cover:img.replace('170x170','600x600'),
-    duration:0,
-    ytId:null,
-  };
-}
-
-/* ── YouTube ID via Invidious (CORS ok, no key) ── */
-async function getYtId(query){
-  for(var attempt=0; attempt<INV_INSTANCES.length; attempt++){
-    var base=INV_INSTANCES[(invIdx+attempt)%INV_INSTANCES.length];
-    try{
-      var url=base+'/api/v1/search?q='+encodeURIComponent(query+' official audio')
-        +'&type=video&page=1&fields=videoId,title';
-      var r=await fetch(url,{signal:AbortSignal.timeout(6000)});
-      if(!r.ok) continue;
-      var data=await r.json();
-      if(Array.isArray(data)&&data[0]&&data[0].videoId){
-        invIdx=(invIdx+attempt)%INV_INSTANCES.length; /* stick to working instance */
-        return data[0].videoId;
-      }
-    }catch(e){continue;}
-  }
-  return null;
-}
-
-async function enrich(tracks,limit){
-  limit=limit||15;
-  var slice=tracks.slice(0,limit);
-  await Promise.allSettled(slice.map(async function(t){
-    if(t.ytId)return;
-    t.ytId=await getYtId(t.artist+' '+t.title);
-  }));
+function normRSS(e){
+  var img=(e['im:image']&&e['im:image'][2])?e['im:image'][2].label:'';
+  return{id:String(Math.random()),
+    title:(e['im:name']&&e['im:name'].label)||'Unknown',
+    artist:(e['im:artist']&&e['im:artist'].label)||'Unknown',
+    album:'',cover:img,duration:0};
 }
 
 /* ── YouTube IFrame ── */
+(function(){
+  var d=document.createElement('div');
+  d.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;bottom:0;left:0';
+  d.innerHTML='<div id="ytFrame"></div>';
+  document.body.appendChild(d);
+  var s=document.createElement('script');
+  s.src='https://www.youtube.com/iframe_api';
+  document.head.appendChild(s);
+})();
+
 window.onYouTubeIframeAPIReady=function(){
   S.yt=new YT.Player('ytFrame',{
     height:'1',width:'1',
-    playerVars:{autoplay:0,controls:0,disablekb:1,fs:0,rel:0,modestbranding:1,playsinline:1},
+    /* autoplay:0 — user must tap play (mobile policy) */
+    playerVars:{autoplay:0,controls:0,disablekb:1,fs:0,rel:0,modestbranding:1,playsinline:1,origin:location.origin},
     events:{
-      onReady:function(){S.ytReady=true;},
+      onReady:function(e){
+        S.ytReady=true;
+        /* Prime the player with a silent interaction so mobile allows later play */
+        try{e.target.mute();e.target.playVideo();e.target.stopVideo();e.target.unMute();}catch(ex){}
+      },
       onStateChange:function(e){
-        if(e.data===1){S.playing=true;updAllUI();startTick();}
-        else if(e.data===2){S.playing=false;updAllUI();stopTick();}
-        else if(e.data===0){
-          stopTick();S.playing=false;
+        if(e.data===YT.PlayerState.PLAYING){
+          S.playing=true; S.loaded=true;
+          updPlayBtn(); updAllUI(); startTick();
+        } else if(e.data===YT.PlayerState.PAUSED){
+          S.playing=false;
+          updPlayBtn(); updAllUI(); stopTick();
+        } else if(e.data===YT.PlayerState.BUFFERING){
+          /* show loading indicator */
+          setPlayBtnLoading(true);
+        } else if(e.data===YT.PlayerState.ENDED){
+          stopTick(); S.playing=false;
+          updPlayBtn();
           S.repeat?S.yt.playVideo():musicNext();
+        } else if(e.data===YT.PlayerState.CUED){
+          /* Playlist cued = ready to play, user can press play */
+          S.loaded=true;
+          setPlayBtnLoading(false);
+          updPlayBtn();
         }
       },
-      onError:function(){setTimeout(musicNext,1000);}
+      onError:function(){
+        setPlayBtnLoading(false);
+        /* Try next video in playlist or skip */
+        setTimeout(function(){
+          try{S.yt.nextVideo();}catch(e){musicNext();}
+        },800);
+      }
     }
   });
 };
+
+function setPlayBtnLoading(on){
+  var ic=$i('mpbPlayIcon');if(!ic)return;
+  if(on){
+    ic.innerHTML='<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="25 15" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" dur="0.8s" from="0 12 12" to="360 12 12" repeatCount="indefinite"/></circle>';
+  } else {
+    updPlayBtn();
+  }
+}
 
 var _tick;
 function startTick(){
@@ -5556,46 +5521,29 @@ function startTick(){
     if(!S.yt||!S.playing)return;
     var c=0,d=1;
     try{c=S.yt.getCurrentTime()||0;d=S.yt.getDuration()||1;}catch(e){return;}
-    var p=(c/d)*100;
-    var f=$i('mpbProgressFill');if(f)f.style.width=p+'%';
+    var f=$i('mpbProgressFill');if(f)f.style.width=((c/d)*100)+'%';
     var ct=$i('mpbCurTime');if(ct)ct.textContent=fmt(c);
     var dt=$i('mpbDurTime');if(dt)dt.textContent=fmt(d);
   },500);
 }
 function stopTick(){clearInterval(_tick);}
 
-/* ── Trending: iTunes Top Songs ── */
+/* ── Trending ── */
 async function loadTrendingAndCharts(){
   if(S.trendDone)return;
   try{
-    /* Show loading skeleton while fetching */
     var d=await itunesTop(25);
-    var entries=(d.feed&&d.feed.entry)||[];
-    var tracks=entries.map(normItunesRSS);
-    if(!tracks.length) throw new Error('empty');
-    S.homeQ=tracks;
-    S.trendDone=true;
+    var tracks=((d.feed&&d.feed.entry)||[]).map(normRSS);
+    if(!tracks.length)throw 0;
+    S.homeQ=tracks;S.trendDone=true;
     renderTrending(tracks.slice(0,8));
-    renderCharts(tracks.slice(0,20));
-    /* Enrich YouTube IDs in background */
-    enrich(tracks,20).then(function(){
-      if(S.mode==='home'){
-        renderTrending(S.homeQ.slice(0,8));
-        renderCharts(S.homeQ.slice(0,20));
-      }
-    });
+    renderCharts(tracks);
   }catch(e){
-    /* fallback: search "top hits 2024" */
     try{
       var d2=await itunesSearch('top hits 2025',25);
-      var tracks2=(d2.results||[]).filter(function(t){return t.wrapperType==='track';}).map(normItunes);
-      S.homeQ=tracks2;
-      S.trendDone=true;
-      renderTrending(tracks2.slice(0,8));
-      renderCharts(tracks2.slice(0,20));
-      enrich(tracks2,20).then(function(){
-        if(S.mode==='home'){renderTrending(S.homeQ.slice(0,8));renderCharts(S.homeQ.slice(0,20));}
-      });
+      var t2=(d2.results||[]).filter(function(t){return t.wrapperType==='track';}).map(normItunes);
+      S.homeQ=t2;S.trendDone=true;
+      renderTrending(t2.slice(0,8));renderCharts(t2);
     }catch(e2){
       var w=$i('mpTrendingWrap');
       if(w)w.innerHTML='<div class="mp-empty">Gagal memuat. Cek koneksi.</div>';
@@ -5642,20 +5590,13 @@ window.musicSearch=async function(){
   var inp=$i('mpSearchInput');
   var q=inp?inp.value.trim():'';
   if(!q)return;
-
   S.mode='search';
   setTrendingVisible(false);
-
-  var btn=$i('mpSearchBtn');
-  var sec=$i('mpSearchSection');
-  var list=$i('mpTrackList');
-  var clr=$i('mpSearchClear');
-
+  var btn=$i('mpSearchBtn'),sec=$i('mpSearchSection'),list=$i('mpTrackList'),clr=$i('mpSearchClear');
   if(btn){btn.textContent='...';btn.disabled=true;}
   if(sec)sec.style.display='block';
   if(list)list.innerHTML='<div class="mp-empty">Mencari '+esc(q)+'...</div>';
   if(clr)clr.style.display='flex';
-
   try{
     var d=await itunesSearch(q,30);
     var tracks=(d.results||[]).filter(function(t){return t.wrapperType==='track';}).map(normItunes);
@@ -5668,7 +5609,6 @@ window.musicSearch=async function(){
     renderSearchList(tracks,q);
     if(btn){btn.textContent='Cari';btn.disabled=false;}
     var body=$i('mpBody');if(body)body.scrollTop=0;
-    enrich(tracks,20);
   }catch(e){
     if(list)list.innerHTML='<div class="mp-empty">Gagal terhubung. Cek koneksi.</div>';
     if(btn){btn.textContent='Cari';btn.disabled=false;}
@@ -5677,8 +5617,8 @@ window.musicSearch=async function(){
 
 function renderSearchList(tracks,q){
   var list=$i('mpTrackList');if(!list)return;
-  var label='<div class="mp-list-label">'+tracks.length+' HASIL — '+esc(q)+'</div>';
-  var items=tracks.map(function(t,i){
+  list.innerHTML='<div class="mp-list-label">'+tracks.length+' HASIL — '+esc(q)+'</div>'
+    +tracks.map(function(t,i){
     var cov=esc(t.cover||FB);
     var isP=S.q===S.searchQ&&S.i===i;
     var dur=t.duration?fmt(t.duration):'';
@@ -5688,21 +5628,15 @@ function renderSearchList(tracks,q){
       +'<div class="mp-track-dur">'+dur+'</div>'
       +'<div class="mp-track-play-icon"><svg viewBox="0 0 24 24" fill="currentColor">'
       +(isP&&S.playing?'<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>':'<polygon points="5 3 19 12 5 21 5 3"/>')
-      +'</svg></div>'
-      +'</div>';
+      +'</svg></div></div>';
   }).join('');
-  list.innerHTML=label+items;
 }
 
 window.musicClearSearch=function(){
-  var inp=$i('mpSearchInput');
-  var sec=$i('mpSearchSection');
-  var clr=$i('mpSearchClear');
-  if(inp)inp.value='';
-  if(sec)sec.style.display='none';
-  if(clr)clr.style.display='none';
-  S.mode='home';
-  setTrendingVisible(true);
+  var inp=$i('mpSearchInput');if(inp)inp.value='';
+  var sec=$i('mpSearchSection');if(sec)sec.style.display='none';
+  var clr=$i('mpSearchClear');if(clr)clr.style.display='none';
+  S.mode='home';setTrendingVisible(true);
 };
 
 function setTrendingVisible(show){
@@ -5715,62 +5649,85 @@ function play(qi){
   if(qi<0||qi>=S.q.length)return;
   var t=S.q[qi];
   S.i=qi;
+  S.loaded=false;
+  S.playing=false;
   updPlayerBar(t);
   updAllUI();
-  if(!t.ytId){
-    var tries=0;
-    var poll=setInterval(function(){
-      tries++;
-      if(S.q[qi]&&S.q[qi].ytId){
-        clearInterval(poll);
-        if(S.i===qi)doPlay(S.q[qi]);
-      }else if(tries>30){
-        clearInterval(poll);
-        var ar=$i('mpbArtist');
-        if(ar&&S.i===qi)ar.textContent='Audio tidak tersedia';
-      }
-    },500);
+  setPlayBtnLoading(true);
+
+  if(!S.ytReady||!S.yt){
+    setTimeout(function(){play(qi);},600);
     return;
   }
-  doPlay(t);
+
+  /* loadPlaylist with search — YouTube finds & cues matching video */
+  var q=t.artist+' '+t.title+' official audio';
+  try{
+    S.yt.loadPlaylist({
+      listType:'search',
+      list:q,
+      index:0,
+      startSeconds:0
+    });
+  }catch(e){
+    setPlayBtnLoading(false);
+  }
 }
 
-function doPlay(t){
-  if(!S.ytReady||!S.yt){setTimeout(function(){doPlay(t);},500);return;}
-  S.yt.loadVideoById(t.ytId);
-}
+/* When user taps play button after track is cued */
+window.musicTogglePlay=function(){
+  if(!S.yt||!S.ytReady)return;
+  if(S.i<0){
+    /* Nothing loaded yet — play first in queue */
+    if(S.q.length){play(0);}
+    return;
+  }
+  if(S.playing){
+    try{S.yt.pauseVideo();}catch(e){}
+  } else {
+    setPlayBtnLoading(true);
+    try{S.yt.playVideo();}catch(e){}
+  }
+};
 
 window.musicPlayHome=function(i){S.q=S.homeQ;play(i);};
 window.musicLoadSearch=function(i){S.q=S.searchQ;play(i);};
-window.musicTogglePlay=function(){if(!S.yt||S.i<0)return;S.playing?S.yt.pauseVideo():S.yt.playVideo();};
+
 window.musicNext=function(){
   if(!S.q.length)return;
   var n=S.shuffle?Math.floor(Math.random()*S.q.length):(S.i+1)%S.q.length;
   play(n);
 };
+
 window.musicPrev=function(){
   if(!S.q.length)return;
-  try{if(S.yt&&S.yt.getCurrentTime()>3){S.yt.seekTo(0);return;}}catch(e){}
+  try{if(S.yt&&S.yt.getCurrentTime()>3){S.yt.seekTo(0,true);return;}}catch(e){}
   play((S.i-1+S.q.length)%S.q.length);
 };
+
 window.musicSeek=function(e){
   var bar=$i('mpbProgress');
-  if(!bar||!S.yt||!S.ytReady)return;
+  if(!bar||!S.yt||!S.ytReady||!S.loaded)return;
   var rect=bar.getBoundingClientRect();
   var p=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
-  try{var d=S.yt.getDuration();if(d)S.yt.seekTo(p*d);}catch(err){}
+  try{var d=S.yt.getDuration();if(d)S.yt.seekTo(p*d,true);}catch(er){}
 };
-window.musicSetVolume=function(v){try{if(S.yt&&S.ytReady)S.yt.setVolume(parseInt(v));}catch(e){}};
+
+window.musicSetVolume=function(v){
+  try{if(S.yt&&S.ytReady)S.yt.setVolume(parseInt(v));}catch(e){}
+};
+
 window.musicToggleRepeat=function(){
   S.repeat=!S.repeat;
   var b=$i('mpbRepeatBtn');if(b)b.classList.toggle('active',S.repeat);
 };
+
 window.musicToggleShuffle=function(){
   S.shuffle=!S.shuffle;
   var b=$i('mpbShuffleBtn');if(b)b.classList.toggle('active',S.shuffle);
 };
 
-/* ── UI ── */
+/* ── UI helpers ── */
 function updPlayerBar(t){
   var bar=$i('mpPlayerBar');if(bar)bar.classList.add('has-track');
   var art=$i('mpbArt');if(art){art.src=t.cover||FB;art.onerror=function(){this.src=FB;};}
@@ -5778,14 +5735,16 @@ function updPlayerBar(t){
   var ar=$i('mpbArtist');if(ar)ar.textContent=t.artist||'';
   var f=$i('mpbProgressFill');if(f)f.style.width='0%';
   var c=$i('mpbCurTime');if(c)c.textContent='0:00';
-  var d=$i('mpbDurTime');if(d)d.textContent=t.duration?fmt(t.duration):'0:00';
+  var d=$i('mpbDurTime');if(d)d.textContent=t.duration?fmt(t.duration):'...';
 }
+
 function updPlayBtn(){
   var ic=$i('mpbPlayIcon');if(!ic)return;
   ic.innerHTML=S.playing
     ?'<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
     :'<polygon points="5 3 19 12 5 21 5 3"/>';
 }
+
 function updAllUI(){
   updPlayBtn();
   document.querySelectorAll('.mp-trending-card').forEach(function(el,i){
@@ -5820,7 +5779,7 @@ function updAllUI(){
   }
 }
 
-/* ── Page open/close ── */
+/* ── Page ── */
 window.openMusicPage=function(){
   var p=$i('musicPage');if(!p)return;
   p.classList.remove('out','show');
@@ -5845,10 +5804,8 @@ document.addEventListener('DOMContentLoaded',function(){
       var clr=$i('mpSearchClear');
       if(clr)clr.style.display=this.value?'flex':'none';
       if(!this.value.trim()){
-        var sec=$i('mpSearchSection');
-        if(sec)sec.style.display='none';
-        S.mode='home';
-        setTrendingVisible(true);
+        var sec=$i('mpSearchSection');if(sec)sec.style.display='none';
+        S.mode='home';setTrendingVisible(true);
       }
     });
   }
