@@ -3,14 +3,14 @@
   "buildCommand": "",
   "outputDirectory": ".",
   "functions": {
-    "api/serve.js": {
-      "includeFiles": "index.html"
-    }
+    "api/serve.js": { "includeFiles": "index.html" },
+    "api/music.js": { "maxDuration": 30 }
   },
   "rewrites": [
     { "source": "/api/chat",       "destination": "/api/chat" },
     { "source": "/api/multi-chat", "destination": "/api/multi-chat" },
     { "source": "/api/status",     "destination": "/api/status" },
+    { "source": "/api/music",      "destination": "/api/music" },
     { "source": "/(.*)",           "destination": "/api/serve" }
   ],
   "headers": [
