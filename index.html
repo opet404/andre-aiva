@@ -5824,7 +5824,76 @@ document.addEventListener('DOMContentLoaded',function(){
     });
   }
 });
-/* Music terus berjalan saat keluar dari tab/browser */
+/* ── Background Audio Keepalive ──────────────────────────────────
+   Masalah: browser Chrome/Android bisa suspend/kill YouTube iframe
+   saat tab tidak aktif atau layar mati.
+   Solusi: AudioContext silent oscillator — bikin browser "percaya"
+   ada audio aktif sehingga tidak throttle proses JS & iframe.
+   ─────────────────────────────────────────────────────────────── */
+var _bgCtx=null;
+var _bgNode=null;
+var _bgGain=null;
+
+function startAudioKeepalive(){
+  try{
+    if(_bgCtx&&_bgCtx.state==='running') return;
+    _bgCtx=new (window.AudioContext||window.webkitAudioContext)();
+    _bgNode=_bgCtx.createOscillator();
+    _bgGain=_bgCtx.createGain();
+    _bgGain.gain.value=0.00001; /* hampir 0 tapi tetap "ada" */
+    _bgNode.connect(_bgGain);
+    _bgGain.connect(_bgCtx.destination);
+    _bgNode.start();
+  }catch(e){}
+}
+
+function stopAudioKeepalive(){
+  try{
+    if(_bgNode){_bgNode.stop();_bgNode=null;}
+    if(_bgCtx){_bgCtx.close();_bgCtx=null;}
+  }catch(e){}
+}
+
+/* Aktifkan keepalive saat musik mulai, matikan saat pause/stop */
+var _origStartTick=startTick;
+startTick=function(){
+  startAudioKeepalive();
+  _origStartTick.apply(this,arguments);
+};
+var _origStopTick=stopTick;
+stopTick=function(){
+  /* Jangan matikan keepalive — tetap jalan di background */
+  _origStopTick.apply(this,arguments);
+};
+
+/* Saat tab jadi hidden: resume AudioContext kalau suspended */
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden){
+    /* Tab tidak aktif — pastikan AudioContext tidak suspended */
+    try{
+      if(_bgCtx&&_bgCtx.state==='suspended'){
+        _bgCtx.resume();
+      }
+    }catch(e){}
+    /* Update MediaSession supaya notifikasi tetap tampil */
+    try{
+      if(S&&S.q&&S.q[S.i]&&S.playing){
+        updateMediaSession(S.q[S.i]);
+      }
+    }catch(e){}
+  } else {
+    /* Tab aktif lagi — resume AudioContext kalau perlu */
+    try{
+      if(_bgCtx&&_bgCtx.state==='suspended'){_bgCtx.resume();}
+    }catch(e){}
+  }
+});
+
+/* Pastikan AudioContext bisa start setelah user gesture */
+document.addEventListener('click',function onFirstClick(){
+  if(S&&S.playing) startAudioKeepalive();
+  /* Jangan hapus listener — AudioContext bisa suspended lagi kapan saja */
+},true);
 
 })();
 </script>
@@ -5832,7 +5901,14 @@ document.addEventListener('DOMContentLoaded',function(){
 <script>
 /* ── Service Worker Registration (background audio) ── */
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('/sw.js').catch(function(){});
+  navigator.serviceWorker.register('/sw.js').then(function(){
+    /* Keepalive ping ke SW setiap 20 detik supaya tab tidak di-suspend */
+    setInterval(function(){
+      if(navigator.serviceWorker.controller){
+        navigator.serviceWorker.controller.postMessage({type:'KEEPALIVE_PING',ts:Date.now()});
+      }
+    }, 20000);
+  }).catch(function(){});
 }
 </script>
 </body>
