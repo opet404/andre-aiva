@@ -5404,9 +5404,9 @@ function startNameCanvas(){
 </script>
 <script>
 /* ============================================================
-   AIVA MUSIC PLAYER v8
-   Data  : /api/music (Vercel function → Deezer + YouTube scrape)
-   Audio : YouTube IFrame — loadVideoById (full, no limit)
+   AIVA MUSIC PLAYER v9
+   Data  : /api/music (Vercel function → Jamendo API)
+   Audio : Native HTML5 <audio> — direct MP3, background play OK
    UX    : Tap lagu → langsung play
            Trending hilang saat search, muncul lagi saat clear
    ============================================================ */
@@ -5414,16 +5414,18 @@ function startNameCanvas(){
 (function(){
 'use strict';
 
+/* ── Native HTML5 Audio Element ── */
+var _audio = new Audio();
+_audio.preload = 'none';
+
 var S={
   homeQ:[],searchQ:[],q:[],
   i:-1,
   repeat:false,shuffle:false,
   playing:false,
-  ytReady:false,yt:null,
   trendDone:false,
   mode:'home',
-  ytIdxMap:{},   /* track index → current ytIds attempt index */
-  skipCount:0,   /* consecutive skips, reset on successful play */
+  skipCount:0,
 };
 
 var FB="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' rx='16' fill='%231e1e3a'/%3E%3Ccircle cx='40' cy='34' r='16' fill='%232d2d55'/%3E%3Ccircle cx='40' cy='34' r='6' fill='%231e1e3a'/%3E%3Crect x='18' y='54' width='44' height='30' rx='22' fill='%232d2d55'/%3E%3C/svg%3E";
@@ -5440,60 +5442,31 @@ async function apiGet(type, q){
   return r.json();
 }
 
-/* ── YouTube IFrame ── */
-(function(){
-  var d=document.createElement('div');
-  d.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;bottom:0;left:0';
-  d.innerHTML='<div id="ytFrame"></div>';
-  document.body.appendChild(d);
-  var s=document.createElement('script');
-  s.src='https://www.youtube.com/iframe_api';
-  document.head.appendChild(s);
-})();
-
-window.onYouTubeIframeAPIReady=function(){
-  S.yt=new YT.Player('ytFrame',{
-    height:'1',width:'1',
-    playerVars:{autoplay:1,controls:0,disablekb:1,fs:0,rel:0,modestbranding:1,playsinline:1},
-    events:{
-      onReady:function(){S.ytReady=true;},
-      onStateChange:function(e){
-        if(e.data===1){S.playing=true;updPlayBtn();updAllUI();startTick();}
-        else if(e.data===2){S.playing=false;updPlayBtn();updAllUI();stopTick();}
-        else if(e.data===0){stopTick();S.playing=false;S.repeat?S.yt.playVideo():musicNext();}
-        else if(e.data===3){setLoadingBtn(true);}
-      },
-      onError:function(e){
-        setLoadingBtn(false);
-        /* error 101/150 = embed blocked. Try next ytId for same track */
-        var t=S.q[S.i];
-        if(!t) return;
-        var ids=t.ytIds||[];
-        var tried=S.ytIdxMap[S.i]||0;
-        if(tried+1 < ids.length){
-          /* try next candidate ID */
-          S.ytIdxMap[S.i]=tried+1;
-          S.yt.loadVideoById(ids[tried+1]);
-        } else {
-          /* all IDs exhausted for this track */
-          S.skipCount=(S.skipCount||0)+1;
-          if(S.skipCount>=S.q.length){
-            /* all tracks in queue exhausted — stop */
-            S.skipCount=0;
-            var ar=$i('mpbArtist');
-            if(ar)ar.textContent='Tidak ada lagu yang bisa diputar';
-            return;
-          }
-          setTimeout(function(){
-            var n=(S.i+1)%S.q.length;
-            S.ytIdxMap[S.i]=0;
-            play(n);
-          },400);
-        }
-      }
-    }
-  });
-};
+/* ── Native Audio Event Handlers ── */
+_audio.addEventListener('playing',function(){
+  S.playing=true;updPlayBtn();updAllUI();startTick();
+});
+_audio.addEventListener('pause',function(){
+  S.playing=false;updPlayBtn();updAllUI();stopTick();
+});
+_audio.addEventListener('ended',function(){
+  stopTick();S.playing=false;
+  S.repeat?_audio.play().catch(function(){}):musicNext();
+});
+_audio.addEventListener('waiting',function(){setLoadingBtn(true);});
+_audio.addEventListener('canplay',function(){setLoadingBtn(false);});
+_audio.addEventListener('error',function(){
+  setLoadingBtn(false);
+  /* URL error — skip ke lagu berikutnya */
+  S.skipCount=(S.skipCount||0)+1;
+  if(S.skipCount>=S.q.length){
+    S.skipCount=0;
+    var ar=$i('mpbArtist');
+    if(ar)ar.textContent='Tidak ada lagu yang bisa diputar';
+    return;
+  }
+  setTimeout(function(){play((S.i+1)%S.q.length);},400);
+});
 
 function setLoadingBtn(on){
   var ic=$i('mpbPlayIcon');if(!ic)return;
@@ -5527,7 +5500,7 @@ function updateMediaSession(t){
     navigator.mediaSession.setActionHandler('pause',function(){window.musicTogglePlay();});
     navigator.mediaSession.setActionHandler('nexttrack',function(){window.musicNext();});
     navigator.mediaSession.setActionHandler('previoustrack',function(){window.musicPrev();});
-    navigator.mediaSession.setActionHandler('stop',function(){try{if(S.yt&&S.ytReady)S.yt.pauseVideo();}catch(e){}});
+    navigator.mediaSession.setActionHandler('stop',function(){_audio.pause();_audio.currentTime=0;});
   }catch(er){}
 }
 
@@ -5537,11 +5510,11 @@ function setMediaSessionPaused(){
 }
 
 function setMediaSessionPosition(){
-  if(!('mediaSession' in navigator)||!S.yt||!S.ytReady) return;
+  if(!('mediaSession' in navigator)) return;
   try{
-    var dur=S.yt.getDuration()||0;
-    var pos=S.yt.getCurrentTime()||0;
-    if(dur>0){
+    var dur=_audio.duration||0;
+    var pos=_audio.currentTime||0;
+    if(dur>0&&isFinite(dur)){
       navigator.mediaSession.setPositionState({duration:dur,playbackRate:1,position:pos});
     }
   }catch(e){}
@@ -5556,9 +5529,10 @@ function startTick(){
   var t=S.q[S.i];
   if(t) updateMediaSession(t);
   _tick=setInterval(function(){
-    if(!S.yt||!S.playing)return;
-    var c=0,d=1;
-    try{c=S.yt.getCurrentTime()||0;d=S.yt.getDuration()||1;}catch(e){return;}
+    if(!S.playing)return;
+    var c=_audio.currentTime||0;
+    var d=_audio.duration||1;
+    if(!isFinite(d))return;
     var f=$i('mpbProgressFill');if(f)f.style.width=((c/d)*100)+'%';
     var ct=$i('mpbCurTime');if(ct)ct.textContent=fmt(c);
     var dt=$i('mpbDurTime');if(dt)dt.textContent=fmt(d);
@@ -5676,7 +5650,7 @@ function setTrendingVisible(show){
     .forEach(function(el){if(el)el.style.display=show?'':'none';});
 }
 
-/* ── Play engine ── */
+/* ── Play engine (native HTML5 Audio) ── */
 function play(qi){
   if(qi<0||qi>=S.q.length)return;
   var t=S.q[qi];
@@ -5685,9 +5659,8 @@ function play(qi){
   updPlayerBar(t);
   updAllUI();
 
-  var ids=t.ytIds||[];
-  if(!ids.length){
-    /* No IDs at all — skip */
+  if(!t.audioUrl){
+    /* Tidak ada URL audio — skip */
     S.skipCount=(S.skipCount||0)+1;
     if(S.skipCount<S.q.length){
       setTimeout(function(){play((qi+1)%S.q.length);},400);
@@ -5699,26 +5672,27 @@ function play(qi){
     return;
   }
 
-  if(!S.ytReady||!S.yt){
-    setTimeout(function(){play(qi);},500);
-    return;
-  }
-
-  /* Use the current attempt index for this track */
-  var attempt=S.ytIdxMap[qi]||0;
-  if(attempt>=ids.length) attempt=0;
-  S.ytIdxMap[qi]=attempt;
-
   setLoadingBtn(true);
-  S.yt.loadVideoById(ids[attempt]);
+  _audio.pause();
+  _audio.src=t.audioUrl;
+  _audio.load();
+  _audio.play().catch(function(err){
+    /* Autoplay blocked — tunggu user gesture */
+    setLoadingBtn(false);
+    console.warn('Audio play blocked:',err);
+  });
 }
 
 window.musicPlayHome=function(i){S.q=S.homeQ;play(i);};
 window.musicLoadSearch=function(i){S.q=S.searchQ;play(i);};
 
 window.musicTogglePlay=function(){
-  if(!S.yt||!S.ytReady||S.i<0)return;
-  try{S.playing?S.yt.pauseVideo():S.yt.playVideo();}catch(e){}
+  if(S.i<0)return;
+  if(S.playing){
+    _audio.pause();
+  } else {
+    _audio.play().catch(function(){});
+  }
 };
 
 window.musicNext=function(){
@@ -5728,19 +5702,22 @@ window.musicNext=function(){
 
 window.musicPrev=function(){
   if(!S.q.length)return;
-  try{if(S.yt&&S.yt.getCurrentTime()>3){S.yt.seekTo(0,true);return;}}catch(e){}
+  if(_audio.currentTime>3){_audio.currentTime=0;return;}
   play((S.i-1+S.q.length)%S.q.length);
 };
 
 window.musicSeek=function(e){
   var bar=$i('mpbProgress');
-  if(!bar||!S.yt||!S.ytReady)return;
+  if(!bar)return;
   var rect=bar.getBoundingClientRect();
   var p=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
-  try{var d=S.yt.getDuration();if(d)S.yt.seekTo(p*d,true);}catch(er){}
+  var d=_audio.duration;
+  if(d&&isFinite(d))_audio.currentTime=p*d;
 };
 
-window.musicSetVolume=function(v){try{if(S.yt&&S.ytReady)S.yt.setVolume(parseInt(v));}catch(e){}};
+window.musicSetVolume=function(v){
+  _audio.volume=Math.max(0,Math.min(1,parseInt(v)/100));
+};
 
 window.musicToggleRepeat=function(){
   S.repeat=!S.repeat;
@@ -5824,76 +5801,13 @@ document.addEventListener('DOMContentLoaded',function(){
     });
   }
 });
-/* ── Background Audio Keepalive ──────────────────────────────────
-   Masalah: browser Chrome/Android bisa suspend/kill YouTube iframe
-   saat tab tidak aktif atau layar mati.
-   Solusi: AudioContext silent oscillator — bikin browser "percaya"
-   ada audio aktif sehingga tidak throttle proses JS & iframe.
-   ─────────────────────────────────────────────────────────────── */
-var _bgCtx=null;
-var _bgNode=null;
-var _bgGain=null;
-
-function startAudioKeepalive(){
-  try{
-    if(_bgCtx&&_bgCtx.state==='running') return;
-    _bgCtx=new (window.AudioContext||window.webkitAudioContext)();
-    _bgNode=_bgCtx.createOscillator();
-    _bgGain=_bgCtx.createGain();
-    _bgGain.gain.value=0.00001; /* hampir 0 tapi tetap "ada" */
-    _bgNode.connect(_bgGain);
-    _bgGain.connect(_bgCtx.destination);
-    _bgNode.start();
-  }catch(e){}
-}
-
-function stopAudioKeepalive(){
-  try{
-    if(_bgNode){_bgNode.stop();_bgNode=null;}
-    if(_bgCtx){_bgCtx.close();_bgCtx=null;}
-  }catch(e){}
-}
-
-/* Aktifkan keepalive saat musik mulai, matikan saat pause/stop */
-var _origStartTick=startTick;
-startTick=function(){
-  startAudioKeepalive();
-  _origStartTick.apply(this,arguments);
-};
-var _origStopTick=stopTick;
-stopTick=function(){
-  /* Jangan matikan keepalive — tetap jalan di background */
-  _origStopTick.apply(this,arguments);
-};
-
-/* Saat tab jadi hidden: resume AudioContext kalau suspended */
+/* ── MediaSession refresh saat tab hidden ── */
 document.addEventListener('visibilitychange',function(){
-  if(document.hidden){
-    /* Tab tidak aktif — pastikan AudioContext tidak suspended */
-    try{
-      if(_bgCtx&&_bgCtx.state==='suspended'){
-        _bgCtx.resume();
-      }
-    }catch(e){}
-    /* Update MediaSession supaya notifikasi tetap tampil */
-    try{
-      if(S&&S.q&&S.q[S.i]&&S.playing){
-        updateMediaSession(S.q[S.i]);
-      }
-    }catch(e){}
-  } else {
-    /* Tab aktif lagi — resume AudioContext kalau perlu */
-    try{
-      if(_bgCtx&&_bgCtx.state==='suspended'){_bgCtx.resume();}
-    }catch(e){}
+  if(document.hidden&&S.playing&&S.q[S.i]){
+    /* Refresh notifikasi lock screen saat app di-minimize */
+    updateMediaSession(S.q[S.i]);
   }
 });
-
-/* Pastikan AudioContext bisa start setelah user gesture */
-document.addEventListener('click',function onFirstClick(){
-  if(S&&S.playing) startAudioKeepalive();
-  /* Jangan hapus listener — AudioContext bisa suspended lagi kapan saja */
-},true);
 
 })();
 </script>
