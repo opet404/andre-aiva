@@ -5444,19 +5444,40 @@ function normTrack(t){
     album:    t.album_name  || '',
     cover:    t.image       || '',
     duration: t.duration    || 0,
-    audioUrl: t.audio       || '',
+    /* audiodownload = full track MP3, audio = 30s preview fallback */
+    audioUrl: t.audiodownload || t.audio || '',
   };
 }
 
 async function apiGet(type, q){
-  var params='client_id='+JAMENDO_ID+'&format=json&limit=30&audioformat=mp31&imagesize=300';
+  var params=[
+    'client_id='+JAMENDO_ID,
+    'format=json',
+    'limit=30',
+    'audioformat=mp31',
+    'audiodownload=true',
+    'include=musicinfo',
+    'imagesize=300',
+    'sharemode=creativecommons',
+  ].join('&');
   if(type==='trending') params+='&order=popularity_total';
   if(type==='search'&&q) params+='&search='+encodeURIComponent(q);
-  var r=await fetch(JAMENDO_BASE+'?'+params,{signal:AbortSignal.timeout(15000)});
-  if(!r.ok) throw new Error('Jamendo '+r.status);
-  var d=await r.json();
-  var tracks=(d.results||[]).map(normTrack).filter(function(t){return t.audioUrl;});
-  return {tracks:tracks};
+
+  /* Coba langsung ke Jamendo dulu (browser fetch, CORS OK) */
+  try{
+    var r=await fetch(JAMENDO_BASE+'?'+params,{signal:AbortSignal.timeout(12000)});
+    if(r.ok){
+      var d=await r.json();
+      var tracks=(d.results||[]).map(normTrack).filter(function(t){return t.audioUrl;});
+      if(tracks.length) return {tracks:tracks};
+    }
+  }catch(e){}
+
+  /* Fallback: lewat Vercel proxy /api/music */
+  var url='/api/music?type='+type+(q?'&q='+encodeURIComponent(q):'');
+  var r2=await fetch(url,{signal:AbortSignal.timeout(15000)});
+  if(!r2.ok) throw new Error('API '+r2.status);
+  return r2.json();
 }
 
 /* ── Native Audio Event Handlers ── */
