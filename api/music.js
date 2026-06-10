@@ -1,41 +1,109 @@
-/* AIVA Music API v9
-   Trending  : artis Indo top hardcoded → Deezer search
-   Search    : Deezer search
-   Resolve   : YouTube Innertube → audio URL
-   Stream    : 302 redirect ke YouTube CDN (browser fetch langsung, no CORS on <audio>)
+/* AIVA Music API v10
+   Trending : lagu Indo Gen Z top — hardcoded queries spesifik per lagu
+   Search   : Deezer
+   Resolve  : YouTube Innertube ANDROID_TESTSUITE (paling reliable, no cipher)
+   Stream   : 302 redirect ke YouTube CDN
 */
 
 const DEEZER    = 'https://api.deezer.com';
 const INNERTUBE = 'https://www.youtube.com/youtubei/v1';
 const YT_KEY    = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 
-const INDO_ARTISTS = [
-  'Hindia','The Panturas','Feast','Barasuara','Efek Rumah Kaca',
-  'Pamungkas','Weird Genius','Raisa','Tulus','Isyana Sarasvati',
-  'Afgan','Fourtwnty','Mocca','Reality Club','Elephant Kind',
-  'The SIGIT','Padi Reborn','Noah','Sheila on 7','Maliq D Essentials',
+/* Lagu Indo Gen Z yang top — query spesifik supaya Deezer return hasil tepat */
+const INDO_TOP = [
+  'Hindia Secukupnya',
+  'Hindia Besok Mungkin Kita Sampai',
+  'The Panturas Mabuk Laut',
+  'The Panturas Terlalu Tinggi',
+  'Feast Berita Kehilangan',
+  'Feast Membasuh',
+  'Barasuara Taifun',
+  'Barasuara Api dan Lentera',
+  'Efek Rumah Kaca Cinta Melulu',
+  'Efek Rumah Kaca Jatuh Cinta Itu Biasa Saja',
+  'Pamungkas To The Bone',
+  'Pamungkas I Love You But I Love Me More',
+  'Reality Club In Your Arms Instead',
+  'Reality Club Closer',
+  'Fourtwnty Zona Nyaman',
+  'Fourtwnty Aku Bukan Untukmu',
+  'Elephant Kind Someday',
+  'Mocca I Love You Anyway',
+  'Tulus Gajah',
+  'Tulus Sepatu',
+  'Raisa Teduh Bersama',
+  'Weird Genius ft Sara Fajira Lathi',
+  'Isyana Sarasvati Tetap Dalam Jiwa',
+  'Sheila on 7 Dan',
+  'Sheila on 7 Melompat Lebih Tinggi',
+  'Noah Separuh Aku',
+  'Padi Reborn Semua Tak Sama',
+  'Maliq D Essentials Terdiam Sepi',
+  'Afgan Jodoh Pasti Bertemu',
+  'Yura Yunita Cinta Dan Rahasia',
 ];
 
 function norm(t) {
   return {
-    id:      String(t.id),
-    title:   t.title        || 'Unknown',
-    artist:  t.artist?.name || 'Unknown',
-    album:   t.album?.title || '',
-    cover:   t.album?.cover_medium || t.album?.cover_big || t.album?.cover || '',
-    duration:t.duration || 0,
-    audioUrl:'',
-    ytQuery: `${t.title} ${t.artist?.name || ''} audio`,
+    id:       String(t.id),
+    title:    t.title        || 'Unknown',
+    artist:   t.artist?.name || 'Unknown',
+    album:    t.album?.title || '',
+    cover:    t.album?.cover_medium || t.album?.cover_big || t.album?.cover || '',
+    duration: t.duration     || 0,
+    audioUrl: '',
+    ytQuery:  `${t.title} ${t.artist?.name || ''}`,
   };
 }
 
-async function deezerSearch(q, limit = 3) {
+async function deezerSearch(q, limit = 1) {
   try {
-    const r = await fetch(`${DEEZER}/search?q=${encodeURIComponent(q)}&limit=${limit}&order=RANKING`);
+    const r = await fetch(
+      `${DEEZER}/search?q=${encodeURIComponent(q)}&limit=${limit}&order=RANKING`,
+      { signal: AbortSignal.timeout(8000) }
+    );
     if (!r.ok) return [];
     const d = await r.json();
     return (d.data || []).map(norm);
   } catch { return []; }
+}
+
+/* YouTube Innertube: ANDROID_TESTSUITE — tidak butuh signature decoding */
+async function ytGetAudio(videoId) {
+  const body = {
+    context: {
+      client: {
+        clientName: 'ANDROID_TESTSUITE',
+        clientVersion: '1.9',
+        androidSdkVersion: 30,
+        hl: 'id', gl: 'ID',
+      },
+    },
+    videoId,
+  };
+  try {
+    const r = await fetch(`${INNERTUBE}/player?key=${YT_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'com.google.android.youtube/17.31.35 (Linux; U; Android 11)',
+        'X-YouTube-Client-Name': '30',
+        'X-YouTube-Client-Version': '1.9',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (d.playabilityStatus?.status !== 'OK') return null;
+    const formats = [
+      ...(d.streamingData?.adaptiveFormats || []),
+      ...(d.streamingData?.formats || []),
+    ].filter(f => f.mimeType?.startsWith('audio/') && f.url);
+    if (!formats.length) return null;
+    formats.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+    return formats[0].url;
+  } catch { return null; }
 }
 
 async function ytSearch(query) {
@@ -48,6 +116,7 @@ async function ytSearch(query) {
         query,
         params: 'EgIQAQ==',
       }),
+      signal: AbortSignal.timeout(10000),
     });
     if (!r.ok) return null;
     const txt = await r.text();
@@ -56,78 +125,22 @@ async function ytSearch(query) {
   } catch { return null; }
 }
 
-async function ytAudioUrl(videoId) {
-  const clients = [
-    {
-      name: 'ANDROID_MUSIC', version: '6.42.52', sdk: 30,
-      ua: 'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 11)',
-      cn: '21',
-    },
-    {
-      name: 'ANDROID', version: '17.31.35', sdk: 30,
-      ua: 'com.google.android.youtube/17.31.35 (Linux; U; Android 11)',
-      cn: '3',
-    },
-    {
-      name: 'IOS', version: '19.09.3', sdk: 0,
-      ua: 'com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)',
-      cn: '5',
-    },
-  ];
-
-  for (const c of clients) {
-    try {
-      const body = {
-        context: {
-          client: {
-            clientName: c.name,
-            clientVersion: c.version,
-            ...(c.sdk ? { androidSdkVersion: c.sdk } : {}),
-            hl: 'id', gl: 'ID',
-          },
-        },
-        videoId,
-        params: '2AMBCgIQBg',
-        playbackContext: { contentPlaybackContext: { html5Preference: 'HTML5_PREF_WANTS' } },
-      };
-      const r = await fetch(`${INNERTUBE}/player?key=${YT_KEY}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': c.ua,
-          'X-YouTube-Client-Name': c.cn,
-          'X-YouTube-Client-Version': c.version,
-        },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) continue;
-      const d = await r.json();
-      if (d.playabilityStatus?.status === 'ERROR') continue;
-      const formats = [
-        ...(d.streamingData?.adaptiveFormats || []),
-        ...(d.streamingData?.formats || []),
-      ].filter(f => f.mimeType?.startsWith('audio/') && f.url);
-      if (!formats.length) continue;
-      formats.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-      return formats[0].url;
-    } catch { continue; }
-  }
-  return null;
-}
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const { type, q, url } = req.query;
 
-  /* ── Trending ── */
+  /* ── Trending: lagu Indo Gen Z top ── */
   if (type === 'trending') {
     try {
-      const results = await Promise.allSettled(INDO_ARTISTS.map(a => deezerSearch(a, 3)));
+      const results = await Promise.allSettled(INDO_TOP.map(q => deezerSearch(q, 1)));
       const seen = new Set();
       const tracks = results
         .flatMap(r => r.status === 'fulfilled' ? r.value : [])
-        .filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; })
-        .slice(0, 40);
+        .filter(t => {
+          if (!t.id || seen.has(t.id)) return false;
+          seen.add(t.id); return true;
+        })
+        .slice(0, 30);
       return res.json({ tracks });
     } catch (e) {
       return res.status(500).json({ tracks: [], error: String(e) });
@@ -144,14 +157,14 @@ export default async function handler(req, res) {
     }
   }
 
-  /* ── Resolve: dapat audio URL dari YouTube ── */
+  /* ── Resolve: YouTube search + audio URL ── */
   if (type === 'resolve' && q) {
     try {
       const videoId = await ytSearch(q);
-      if (!videoId) return res.status(404).json({ error: 'Not found' });
-      const audioUrl = await ytAudioUrl(videoId);
-      if (!audioUrl) return res.status(404).json({ error: 'No audio' });
-      /* Return stream URL via /api/music?type=stream supaya browser tidak kena CORS */
+      if (!videoId) return res.status(404).json({ error: 'Video not found' });
+      const audioUrl = await ytGetAudio(videoId);
+      if (!audioUrl) return res.status(404).json({ error: 'No audio stream' });
+      /* Return via stream endpoint supaya CORS aman */
       const streamUrl = `/api/music?type=stream&url=${encodeURIComponent(audioUrl)}`;
       return res.json({ audioUrl: streamUrl, videoId });
     } catch (e) {
@@ -160,20 +173,20 @@ export default async function handler(req, res) {
   }
 
   /* ── Stream: 302 redirect ke YouTube CDN ── */
-  /* <audio> tag tidak enforce CORS, jadi redirect langsung jalan */
+  /* <audio> tag tidak enforce CORS — redirect langsung work */
   if (type === 'stream' && url) {
     try {
       const src = decodeURIComponent(url);
       if (!src.includes('googlevideo.com')) {
         return res.status(403).end('Forbidden');
       }
-      /* Redirect — tidak perlu proxy, jauh lebih cepat & tidak timeout */
       res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Access-Control-Allow-Origin', '*');
       return res.redirect(302, src);
     } catch (e) {
       return res.status(500).end(String(e));
     }
   }
 
-  res.status(400).json({ error: 'Invalid' });
+  res.status(400).json({ error: 'Invalid request' });
 }
