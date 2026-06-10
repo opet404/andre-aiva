@@ -5432,78 +5432,40 @@ function $i(id){return document.getElementById(id);}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function fmt(s){if(!s||isNaN(s))return'0:00';var m=Math.floor(s/60),sec=Math.floor(s%60);return m+':'+(sec<10?'0':'')+sec;}
 
-/* ── Jamendo API (direct from browser — no server needed) ── */
-/* ── Internet Archive Music API (no key, full tracks, CORS open) ── */
-var IA_SEARCH = 'https://archive.org/advancedsearch.php';
-var IA_DETAILS= 'https://archive.org/metadata/';
-var IA_STREAM = 'https://archive.org/download/';
-
-function normIATrack(doc, file){
-  var id   = doc.identifier || '';
-  var fname= (file && file.name) ? file.name : '';
+/* ── Music API via Vercel proxy (/api/music) ── */
+function normTrack(t){
   return {
-    id:       id + '/' + fname,
-    title:    (file && file.title) || doc.title || fname.replace(/\.[^.]+$/,'') || 'Unknown',
-    artist:   (file && file.creator) || doc.creator || doc.artist || 'Unknown',
-    album:    doc.album || doc.title || '',
-    cover:    id ? 'https://archive.org/services/img/'+id : '',
-    duration: (file && file.length) ? parseInt(file.length) : 0,
-    audioUrl: id && fname ? IA_STREAM+id+'/'+encodeURIComponent(fname) : '',
+    id:       String(t.id),
+    title:    t.title    || 'Unknown',
+    artist:   t.artist   || 'Unknown',
+    album:    t.album    || '',
+    cover:    t.cover    || '',
+    duration: t.duration || 0,
+    audioUrl: '',                /* diisi saat play via resolve */
+    ytQuery:  t.ytQuery  || (t.title+' '+(t.artist||'')+' official audio'),
   };
 }
 
-/* Ambil file MP3 pertama dari satu identifier */
-async function iaGetFiles(identifier){
-  try{
-    var r=await fetch(IA_DETAILS+identifier,{signal:AbortSignal.timeout(8000)});
-    if(!r.ok) return null;
-    var d=await r.json();
-    var files=(d.files||[]).filter(function(f){
-      return f.format&&(f.format.toLowerCase().includes('mp3')||f.name.endsWith('.mp3'))
-             && f.name && !f.name.includes('64kb'); /* prefer higher quality */
-    });
-    /* pilih file terpendek (lagu, bukan mix) */
-    files.sort(function(a,b){return (parseFloat(a.length)||999)-(parseFloat(b.length)||999);});
-    return {doc:d.metadata||{identifier:identifier}, file:files[0]||null};
-  }catch(e){return null;}
+async function apiGet(type, q){
+  var url='/api/music?type='+type+(q?'&q='+encodeURIComponent(q):'');
+  var r=await fetch(url,{signal:AbortSignal.timeout(25000)});
+  if(!r.ok) throw new Error('API '+r.status);
+  var d=await r.json();
+  if(d.tracks) d.tracks=d.tracks.map(normTrack);
+  return d;
 }
 
-async function apiGet(type, q){
-  /* Query ke Internet Archive */
-  var query;
-  if(type==='trending'){
-    query='mediatype:audio AND subject:(music OR song OR jazz OR pop OR rock) AND format:MP3';
-  } else {
-    query='mediatype:audio AND (title:('+q+') OR creator:('+q+') OR subject:('+q+')) AND format:MP3';
-  }
-  var params=new URLSearchParams({
-    q:       query,
-    fl:      'identifier,title,creator,artist,album',
-    sort:    type==='trending'?'downloads desc':'',
-    rows:    '40',
-    page:    '1',
-    output:  'json',
-  });
-  var r=await fetch(IA_SEARCH+'?'+params,{signal:AbortSignal.timeout(15000)});
-  if(!r.ok) throw new Error('IA search '+r.status);
+/* Resolve audio URL (YouTube full track) saat tap play */
+async function resolveAudio(t){
+  if(t.audioUrl) return t.audioUrl;   /* sudah ada, pakai langsung */
+  var r=await fetch('/api/music?type=resolve&q='+encodeURIComponent(t.ytQuery||t.title),
+                    {signal:AbortSignal.timeout(20000)});
+  if(!r.ok) throw new Error('resolve '+r.status);
   var d=await r.json();
-  var docs=(d.response&&d.response.docs)||[];
-  if(!docs.length) return {tracks:[]};
-
-  /* Ambil file detail untuk 20 item pertama secara paralel */
-  var slice=docs.slice(0,20);
-  var results=await Promise.allSettled(slice.map(function(doc){
-    return iaGetFiles(doc.identifier).then(function(res){
-      if(!res||!res.file) return null;
-      /* merge metadata dari search + dari file */
-      var merged=Object.assign({},doc,res.doc);
-      return normIATrack(merged, res.file);
-    });
-  }));
-  var tracks=results
-    .filter(function(r){return r.status==='fulfilled'&&r.value&&r.value.audioUrl;})
-    .map(function(r){return r.value;});
-  return {tracks:tracks};
+  if(!d.audioUrl) throw new Error('no audio');
+  /* cache di object track supaya tidak resolve ulang */
+  t.audioUrl='/api/music?type=stream&url='+encodeURIComponent(d.audioUrl);
+  return t.audioUrl;
 }
 
 /* ── Native Audio Event Handlers ── */
@@ -5722,28 +5684,26 @@ function play(qi){
   S.playing=false;
   updPlayerBar(t);
   updAllUI();
+  setLoadingBtn(true);
+  _audio.pause();
 
-  if(!t.audioUrl){
-    /* Tidak ada URL audio — skip */
+  /* Resolve audio URL via YouTube Innertube, lalu play */
+  resolveAudio(t).then(function(src){
+    if(S.i!==qi) return; /* user sudah ganti lagu */
+    _audio.src=src;
+    _audio.load();
+    return _audio.play();
+  }).catch(function(err){
+    setLoadingBtn(false);
+    /* Gagal resolve — coba lagu berikutnya */
     S.skipCount=(S.skipCount||0)+1;
     if(S.skipCount<S.q.length){
-      setTimeout(function(){play((qi+1)%S.q.length);},400);
+      setTimeout(function(){play((qi+1)%S.q.length);},600);
     } else {
       S.skipCount=0;
       var ar=$i('mpbArtist');
-      if(ar)ar.textContent='Tidak ada lagu tersedia';
+      if(ar)ar.textContent='Gagal memutar lagu';
     }
-    return;
-  }
-
-  setLoadingBtn(true);
-  _audio.pause();
-  _audio.src=t.audioUrl;
-  _audio.load();
-  _audio.play().catch(function(err){
-    /* Autoplay blocked — tunggu user gesture */
-    setLoadingBtn(false);
-    console.warn('Audio play blocked:',err);
   });
 }
 
