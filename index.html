@@ -5456,16 +5456,29 @@ async function apiGet(type, q){
 }
 
 /* Resolve audio URL (YouTube full track) saat tap play */
+var _resolveCache={}; /* cache by track id */
+var _resolveAbort=null; /* abort controller untuk request sebelumnya */
+
 async function resolveAudio(t){
-  if(t.audioUrl) return t.audioUrl;   /* sudah ada, pakai langsung */
-  var r=await fetch('/api/music?type=resolve&q='+encodeURIComponent(t.ytQuery||t.title),
-                    {signal:AbortSignal.timeout(20000)});
+  /* Kalau sudah punya audioUrl yang valid, pakai langsung */
+  if(t.audioUrl) return t.audioUrl;
+  /* Cek cache */
+  if(_resolveCache[t.id]) { t.audioUrl=_resolveCache[t.id]; return t.audioUrl; }
+
+  /* Batalkan resolve sebelumnya */
+  if(_resolveAbort){ try{_resolveAbort.abort();}catch(e){} }
+  _resolveAbort=new AbortController();
+  var sig=_resolveAbort.signal;
+
+  var r=await fetch('/api/music?type=resolve&q='+encodeURIComponent(t.ytQuery||t.title+' '+t.artist),
+                    {signal:sig});
   if(!r.ok) throw new Error('resolve '+r.status);
   var d=await r.json();
   if(!d.audioUrl) throw new Error('no audio');
-  /* cache di object track supaya tidak resolve ulang */
-  t.audioUrl='/api/music?type=stream&url='+encodeURIComponent(d.audioUrl);
-  return t.audioUrl;
+  var proxyUrl='/api/music?type=stream&url='+encodeURIComponent(d.audioUrl);
+  _resolveCache[t.id]=proxyUrl;
+  t.audioUrl=proxyUrl;
+  return proxyUrl;
 }
 
 /* ── Native Audio Event Handlers ── */
@@ -5677,28 +5690,31 @@ function setTrendingVisible(show){
 }
 
 /* ── Play engine (native HTML5 Audio) ── */
+var _playId=0; /* increment setiap play() — batalkan resolve lama */
+
 function play(qi){
   if(qi<0||qi>=S.q.length)return;
   var t=S.q[qi];
+  var myId=++_playId;
   S.i=qi;
   S.playing=false;
   updPlayerBar(t);
   updAllUI();
   setLoadingBtn(true);
   _audio.pause();
+  _audio.src='';
 
-  /* Resolve audio URL via YouTube Innertube, lalu play */
   resolveAudio(t).then(function(src){
-    if(S.i!==qi) return; /* user sudah ganti lagu */
+    if(_playId!==myId) return; /* user sudah ganti lagu, abaikan */
     _audio.src=src;
     _audio.load();
     return _audio.play();
-  }).catch(function(err){
+  }).catch(function(){
+    if(_playId!==myId) return;
     setLoadingBtn(false);
-    /* Gagal resolve — coba lagu berikutnya */
     S.skipCount=(S.skipCount||0)+1;
     if(S.skipCount<S.q.length){
-      setTimeout(function(){play((qi+1)%S.q.length);},600);
+      setTimeout(function(){if(_playId===myId)play((qi+1)%S.q.length);},800);
     } else {
       S.skipCount=0;
       var ar=$i('mpbArtist');
