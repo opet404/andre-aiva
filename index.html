@@ -5433,51 +5433,77 @@ function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace
 function fmt(s){if(!s||isNaN(s))return'0:00';var m=Math.floor(s/60),sec=Math.floor(s%60);return m+':'+(sec<10?'0':'')+sec;}
 
 /* ── Jamendo API (direct from browser — no server needed) ── */
-var JAMENDO_ID='9dd55976';
-var JAMENDO_BASE='https://api.jamendo.com/v3.0/tracks/';
+/* ── Internet Archive Music API (no key, full tracks, CORS open) ── */
+var IA_SEARCH = 'https://archive.org/advancedsearch.php';
+var IA_DETAILS= 'https://archive.org/metadata/';
+var IA_STREAM = 'https://archive.org/download/';
 
-function normTrack(t){
+function normIATrack(doc, file){
+  var id   = doc.identifier || '';
+  var fname= (file && file.name) ? file.name : '';
   return {
-    id:       String(t.id),
-    title:    t.name        || 'Unknown',
-    artist:   t.artist_name || 'Unknown',
-    album:    t.album_name  || '',
-    cover:    t.image       || '',
-    duration: t.duration    || 0,
-    /* audiodownload = full track MP3, audio = 30s preview fallback */
-    audioUrl: t.audiodownload || t.audio || '',
+    id:       id + '/' + fname,
+    title:    (file && file.title) || doc.title || fname.replace(/\.[^.]+$/,'') || 'Unknown',
+    artist:   (file && file.creator) || doc.creator || doc.artist || 'Unknown',
+    album:    doc.album || doc.title || '',
+    cover:    id ? 'https://archive.org/services/img/'+id : '',
+    duration: (file && file.length) ? parseInt(file.length) : 0,
+    audioUrl: id && fname ? IA_STREAM+id+'/'+encodeURIComponent(fname) : '',
   };
 }
 
-async function apiGet(type, q){
-  var params=[
-    'client_id='+JAMENDO_ID,
-    'format=json',
-    'limit=30',
-    'audioformat=mp31',
-    'audiodownload=true',
-    'include=musicinfo',
-    'imagesize=300',
-    'sharemode=creativecommons',
-  ].join('&');
-  if(type==='trending') params+='&order=popularity_total';
-  if(type==='search'&&q) params+='&search='+encodeURIComponent(q);
-
-  /* Coba langsung ke Jamendo dulu (browser fetch, CORS OK) */
+/* Ambil file MP3 pertama dari satu identifier */
+async function iaGetFiles(identifier){
   try{
-    var r=await fetch(JAMENDO_BASE+'?'+params,{signal:AbortSignal.timeout(12000)});
-    if(r.ok){
-      var d=await r.json();
-      var tracks=(d.results||[]).map(normTrack).filter(function(t){return t.audioUrl;});
-      if(tracks.length) return {tracks:tracks};
-    }
-  }catch(e){}
+    var r=await fetch(IA_DETAILS+identifier,{signal:AbortSignal.timeout(8000)});
+    if(!r.ok) return null;
+    var d=await r.json();
+    var files=(d.files||[]).filter(function(f){
+      return f.format&&(f.format.toLowerCase().includes('mp3')||f.name.endsWith('.mp3'))
+             && f.name && !f.name.includes('64kb'); /* prefer higher quality */
+    });
+    /* pilih file terpendek (lagu, bukan mix) */
+    files.sort(function(a,b){return (parseFloat(a.length)||999)-(parseFloat(b.length)||999);});
+    return {doc:d.metadata||{identifier:identifier}, file:files[0]||null};
+  }catch(e){return null;}
+}
 
-  /* Fallback: lewat Vercel proxy /api/music */
-  var url='/api/music?type='+type+(q?'&q='+encodeURIComponent(q):'');
-  var r2=await fetch(url,{signal:AbortSignal.timeout(15000)});
-  if(!r2.ok) throw new Error('API '+r2.status);
-  return r2.json();
+async function apiGet(type, q){
+  /* Query ke Internet Archive */
+  var query;
+  if(type==='trending'){
+    query='mediatype:audio AND subject:(music OR song OR jazz OR pop OR rock) AND format:MP3';
+  } else {
+    query='mediatype:audio AND (title:('+q+') OR creator:('+q+') OR subject:('+q+')) AND format:MP3';
+  }
+  var params=new URLSearchParams({
+    q:       query,
+    fl:      'identifier,title,creator,artist,album',
+    sort:    type==='trending'?'downloads desc':'',
+    rows:    '40',
+    page:    '1',
+    output:  'json',
+  });
+  var r=await fetch(IA_SEARCH+'?'+params,{signal:AbortSignal.timeout(15000)});
+  if(!r.ok) throw new Error('IA search '+r.status);
+  var d=await r.json();
+  var docs=(d.response&&d.response.docs)||[];
+  if(!docs.length) return {tracks:[]};
+
+  /* Ambil file detail untuk 20 item pertama secara paralel */
+  var slice=docs.slice(0,20);
+  var results=await Promise.allSettled(slice.map(function(doc){
+    return iaGetFiles(doc.identifier).then(function(res){
+      if(!res||!res.file) return null;
+      /* merge metadata dari search + dari file */
+      var merged=Object.assign({},doc,res.doc);
+      return normIATrack(merged, res.file);
+    });
+  }));
+  var tracks=results
+    .filter(function(r){return r.status==='fulfilled'&&r.value&&r.value.audioUrl;})
+    .map(function(r){return r.value;});
+  return {tracks:tracks};
 }
 
 /* ── Native Audio Event Handlers ── */
