@@ -5404,26 +5404,26 @@ function startNameCanvas(){
 </script>
 <script>
 /* ============================================================
-   AIVA MUSIC PLAYER v10
-   Data  : Jamendo API — langsung dari browser (direct MP3 URLs)
-   Audio : Native HTML5 <audio> — background play + lock screen notif
+   AIVA MUSIC PLAYER v8
+   Data  : /api/music (Vercel function → Deezer + YouTube scrape)
+   Audio : YouTube IFrame — loadVideoById (full, no limit)
+   UX    : Tap lagu → langsung play
+           Trending hilang saat search, muncul lagi saat clear
    ============================================================ */
 
 (function(){
 'use strict';
-
-/* ── Native HTML5 Audio Element ── */
-var _audio = new Audio();
-_audio.preload = 'none';
 
 var S={
   homeQ:[],searchQ:[],q:[],
   i:-1,
   repeat:false,shuffle:false,
   playing:false,
+  ytReady:false,yt:null,
   trendDone:false,
   mode:'home',
-  skipCount:0,
+  ytIdxMap:{},   /* track index → current ytIds attempt index */
+  skipCount:0,   /* consecutive skips, reset on successful play */
 };
 
 var FB="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' rx='16' fill='%231e1e3a'/%3E%3Ccircle cx='40' cy='34' r='16' fill='%232d2d55'/%3E%3Ccircle cx='40' cy='34' r='6' fill='%231e1e3a'/%3E%3Crect x='18' y='54' width='44' height='30' rx='22' fill='%232d2d55'/%3E%3C/svg%3E";
@@ -5432,62 +5432,68 @@ function $i(id){return document.getElementById(id);}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function fmt(s){if(!s||isNaN(s))return'0:00';var m=Math.floor(s/60),sec=Math.floor(s%60);return m+':'+(sec<10?'0':'')+sec;}
 
-/* ── Music API ── */
-function normTrack(t){
-  return {
-    id:       String(t.id),
-    title:    t.title    || 'Unknown',
-    artist:   t.artist   || 'Unknown',
-    album:    t.album    || '',
-    cover:    t.cover    || '',
-    duration: t.duration || 0,
-    audioUrl: t.audioUrl || '',
-    ytQuery:  t.ytQuery  || (t.title+' '+t.artist),
-  };
-}
-
+/* ── Our own API ── */
 async function apiGet(type, q){
   var url='/api/music?type='+type+(q?'&q='+encodeURIComponent(q):'');
   var r=await fetch(url,{signal:AbortSignal.timeout(25000)});
   if(!r.ok) throw new Error('API '+r.status);
-  var d=await r.json();
-  if(d.tracks) d.tracks=d.tracks.map(normTrack);
-  return d;
+  return r.json();
 }
 
-/* ── Native HTML5 Audio ── */
-var _ignoreErrors=false; /* flag: abaikan error saat ganti lagu */
+/* ── YouTube IFrame ── */
+(function(){
+  var d=document.createElement('div');
+  d.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;bottom:0;left:0';
+  d.innerHTML='<div id="ytFrame"></div>';
+  document.body.appendChild(d);
+  var s=document.createElement('script');
+  s.src='https://www.youtube.com/iframe_api';
+  document.head.appendChild(s);
+})();
 
-_audio.addEventListener('playing',function(){
-  _ignoreErrors=false;
-  S.playing=true; updPlayBtn(); updAllUI(); startTick();
-});
-_audio.addEventListener('pause',function(){
-  S.playing=false; updPlayBtn(); updAllUI(); stopTick();
-});
-_audio.addEventListener('ended',function(){
-  stopTick(); S.playing=false;
-  S.repeat ? _audio.play().catch(function(){}) : musicNext();
-});
-_audio.addEventListener('waiting',function(){ setLoadingBtn(true); });
-_audio.addEventListener('canplay',function(){ setLoadingBtn(false); });
-_audio.addEventListener('error',function(){
-  if(_ignoreErrors) return; /* sedang ganti lagu, abaikan */
-  if(!_audio.src || _audio.src===window.location.href) return;
-  setLoadingBtn(false);
-  var qi=S.i;
-  if(qi<0 || qi>=S.q.length) return;
-  var t=S.q[qi];
-  if(t){ delete _resolveCache[t.id]; t.audioUrl=''; }
-  S.skipCount=(S.skipCount||0)+1;
-  if(S.skipCount>=S.q.length){
-    S.skipCount=0;
-    var ar=$i('mpbArtist');
-    if(ar) ar.textContent='Tidak ada lagu yang bisa diputar';
-    return;
-  }
-  setTimeout(function(){ play((qi+1)%S.q.length); }, 1000);
-});
+window.onYouTubeIframeAPIReady=function(){
+  S.yt=new YT.Player('ytFrame',{
+    height:'1',width:'1',
+    playerVars:{autoplay:1,controls:0,disablekb:1,fs:0,rel:0,modestbranding:1,playsinline:1},
+    events:{
+      onReady:function(){S.ytReady=true;},
+      onStateChange:function(e){
+        if(e.data===1){S.playing=true;updPlayBtn();updAllUI();startTick();}
+        else if(e.data===2){S.playing=false;updPlayBtn();updAllUI();stopTick();}
+        else if(e.data===0){stopTick();S.playing=false;S.repeat?S.yt.playVideo():musicNext();}
+        else if(e.data===3){setLoadingBtn(true);}
+      },
+      onError:function(e){
+        setLoadingBtn(false);
+        /* error 101/150 = embed blocked. Try next ytId for same track */
+        var t=S.q[S.i];
+        if(!t) return;
+        var ids=t.ytIds||[];
+        var tried=S.ytIdxMap[S.i]||0;
+        if(tried+1 < ids.length){
+          /* try next candidate ID */
+          S.ytIdxMap[S.i]=tried+1;
+          S.yt.loadVideoById(ids[tried+1]);
+        } else {
+          /* all IDs exhausted for this track */
+          S.skipCount=(S.skipCount||0)+1;
+          if(S.skipCount>=S.q.length){
+            /* all tracks in queue exhausted — stop */
+            S.skipCount=0;
+            var ar=$i('mpbArtist');
+            if(ar)ar.textContent='Tidak ada lagu yang bisa diputar';
+            return;
+          }
+          setTimeout(function(){
+            var n=(S.i+1)%S.q.length;
+            S.ytIdxMap[S.i]=0;
+            play(n);
+          },400);
+        }
+      }
+    }
+  });
+};
 
 function setLoadingBtn(on){
   var ic=$i('mpbPlayIcon');if(!ic)return;
@@ -5496,71 +5502,21 @@ function setLoadingBtn(on){
   } else { updPlayBtn(); }
 }
 
-/* ── Media Session API (notifikasi & background play) ── */
-function updateMediaSession(t){
-  if(!('mediaSession' in navigator)||!t) return;
-  var artwork=[];
-  if(t.cover){
-    artwork=[
-      {src:t.cover,sizes:'96x96',type:'image/jpeg'},
-      {src:t.cover,sizes:'128x128',type:'image/jpeg'},
-      {src:t.cover,sizes:'192x192',type:'image/jpeg'},
-      {src:t.cover,sizes:'256x256',type:'image/jpeg'},
-      {src:t.cover,sizes:'512x512',type:'image/jpeg'}
-    ];
-  }
-  try{
-    navigator.mediaSession.metadata=new MediaMetadata({
-      title:t.title||'Lagu',
-      artist:t.artist||'Aiva Music',
-      album:'Aiva Music Player',
-      artwork:artwork
-    });
-    navigator.mediaSession.playbackState='playing';
-    navigator.mediaSession.setActionHandler('play',function(){window.musicTogglePlay();});
-    navigator.mediaSession.setActionHandler('pause',function(){window.musicTogglePlay();});
-    navigator.mediaSession.setActionHandler('nexttrack',function(){window.musicNext();});
-    navigator.mediaSession.setActionHandler('previoustrack',function(){window.musicPrev();});
-    navigator.mediaSession.setActionHandler('stop',function(){_audio.pause();_audio.currentTime=0;});
-  }catch(er){}
-}
-
-function setMediaSessionPaused(){
-  if(!('mediaSession' in navigator)) return;
-  try{navigator.mediaSession.playbackState='paused';}catch(e){}
-}
-
-function setMediaSessionPosition(){
-  if(!('mediaSession' in navigator)) return;
-  try{
-    var dur=_audio.duration||0;
-    var pos=_audio.currentTime||0;
-    if(dur>0&&isFinite(dur)){
-      navigator.mediaSession.setPositionState({duration:dur,playbackRate:1,position:pos});
-    }
-  }catch(e){}
-}
-
 var _tick;
 function startTick(){
   setLoadingBtn(false);
   S.skipCount=0; /* successful play — reset skip counter */
   stopTick();
-  /* Update Media Session saat mulai play */
-  var t=S.q[S.i];
-  if(t) updateMediaSession(t);
   _tick=setInterval(function(){
-    if(!S.playing)return;
-    var c=_audio.currentTime||0;
-    var d=_audio.duration||1;
-    if(!isFinite(d))return;
+    if(!S.yt||!S.playing)return;
+    var c=0,d=1;
+    try{c=S.yt.getCurrentTime()||0;d=S.yt.getDuration()||1;}catch(e){return;}
     var f=$i('mpbProgressFill');if(f)f.style.width=((c/d)*100)+'%';
     var ct=$i('mpbCurTime');if(ct)ct.textContent=fmt(c);
     var dt=$i('mpbDurTime');if(dt)dt.textContent=fmt(d);
-    setMediaSessionPosition();
   },500);
 }
-function stopTick(){clearInterval(_tick);setMediaSessionPaused();}
+function stopTick(){clearInterval(_tick);}
 
 /* ── Trending ── */
 async function loadTrendingAndCharts(){
@@ -5672,53 +5628,48 @@ function setTrendingVisible(show){
 }
 
 /* ── Play engine ── */
-var _playId=0;
-
 function play(qi){
-  if(qi<0||qi>=S.q.length) return;
+  if(qi<0||qi>=S.q.length)return;
   var t=S.q[qi];
-  var myId=++_playId;
   S.i=qi;
   S.playing=false;
-  S.skipCount=0;
   updPlayerBar(t);
   updAllUI();
 
-  if(!t.audioUrl){
-    var ar=$i('mpbArtist');
-    if(ar) ar.textContent='Tidak ada audio';
+  var ids=t.ytIds||[];
+  if(!ids.length){
+    /* No IDs at all — skip */
+    S.skipCount=(S.skipCount||0)+1;
+    if(S.skipCount<S.q.length){
+      setTimeout(function(){play((qi+1)%S.q.length);},400);
+    } else {
+      S.skipCount=0;
+      var ar=$i('mpbArtist');
+      if(ar)ar.textContent='Tidak ada lagu tersedia';
+    }
     return;
   }
 
-  setLoadingBtn(true);
-  _ignoreErrors=true;
-  _audio.pause();
-  _audio.removeAttribute('src');
-  _audio.load();
+  if(!S.ytReady||!S.yt){
+    setTimeout(function(){play(qi);},500);
+    return;
+  }
 
-  /* Set src dan play langsung — audioUrl sudah siap dari server */
-  setTimeout(function(){
-    if(_playId!==myId) return;
-    _ignoreErrors=false;
-    _audio.src=t.audioUrl;
-    _audio.load();
-    _audio.play().catch(function(){
-      if(_playId!==myId) return;
-      setLoadingBtn(false);
-    });
-  },50);
+  /* Use the current attempt index for this track */
+  var attempt=S.ytIdxMap[qi]||0;
+  if(attempt>=ids.length) attempt=0;
+  S.ytIdxMap[qi]=attempt;
+
+  setLoadingBtn(true);
+  S.yt.loadVideoById(ids[attempt]);
 }
 
 window.musicPlayHome=function(i){S.q=S.homeQ;play(i);};
 window.musicLoadSearch=function(i){S.q=S.searchQ;play(i);};
 
 window.musicTogglePlay=function(){
-  if(S.i<0)return;
-  if(S.playing){
-    _audio.pause();
-  } else {
-    _audio.play().catch(function(){});
-  }
+  if(!S.yt||!S.ytReady||S.i<0)return;
+  try{S.playing?S.yt.pauseVideo():S.yt.playVideo();}catch(e){}
 };
 
 window.musicNext=function(){
@@ -5728,22 +5679,19 @@ window.musicNext=function(){
 
 window.musicPrev=function(){
   if(!S.q.length)return;
-  if(_audio.currentTime>3){_audio.currentTime=0;return;}
+  try{if(S.yt&&S.yt.getCurrentTime()>3){S.yt.seekTo(0,true);return;}}catch(e){}
   play((S.i-1+S.q.length)%S.q.length);
 };
 
 window.musicSeek=function(e){
   var bar=$i('mpbProgress');
-  if(!bar)return;
+  if(!bar||!S.yt||!S.ytReady)return;
   var rect=bar.getBoundingClientRect();
   var p=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
-  var d=_audio.duration;
-  if(d&&isFinite(d))_audio.currentTime=p*d;
+  try{var d=S.yt.getDuration();if(d)S.yt.seekTo(p*d,true);}catch(er){}
 };
 
-window.musicSetVolume=function(v){
-  _audio.volume=Math.max(0,Math.min(1,parseInt(v)/100));
-};
+window.musicSetVolume=function(v){try{if(S.yt&&S.ytReady)S.yt.setVolume(parseInt(v));}catch(e){}};
 
 window.musicToggleRepeat=function(){
   S.repeat=!S.repeat;
@@ -5827,29 +5775,11 @@ document.addEventListener('DOMContentLoaded',function(){
     });
   }
 });
-/* ── MediaSession refresh saat tab hidden ── */
-document.addEventListener('visibilitychange',function(){
-  if(document.hidden&&S.playing&&S.q[S.i]){
-    /* Refresh notifikasi lock screen saat app di-minimize */
-    updateMediaSession(S.q[S.i]);
-  }
+window.addEventListener('beforeunload',function(){
+  try{if(S.yt&&S.ytReady)S.yt.stopVideo();}catch(e){}
 });
 
 })();
-</script>
-
-<script>
-/* ── Service Worker Registration (background audio) ── */
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('/sw.js').then(function(){
-    /* Keepalive ping ke SW setiap 20 detik supaya tab tidak di-suspend */
-    setInterval(function(){
-      if(navigator.serviceWorker.controller){
-        navigator.serviceWorker.controller.postMessage({type:'KEEPALIVE_PING',ts:Date.now()});
-      }
-    }, 20000);
-  }).catch(function(){});
-}
 </script>
 </body>
 </html>

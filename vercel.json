@@ -4,15 +4,13 @@
   "outputDirectory": ".",
   "functions": {
     "api/serve.js": { "includeFiles": "index.html" },
-    "api/music.js": { "maxDuration": 60 },
-    "api/sw.js":    { "includeFiles": "public/sw.js" }
+    "api/music.js": { "maxDuration": 30 }
   },
   "rewrites": [
     { "source": "/api/chat",       "destination": "/api/chat" },
     { "source": "/api/multi-chat", "destination": "/api/multi-chat" },
     { "source": "/api/status",     "destination": "/api/status" },
     { "source": "/api/music",      "destination": "/api/music" },
-    { "source": "/sw.js",          "destination": "/api/sw" },
     { "source": "/(.*)",           "destination": "/api/serve" }
   ],
   "headers": [
