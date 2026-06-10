@@ -5701,43 +5701,28 @@ function play(qi){
   updAllUI();
   setLoadingBtn(true);
 
-  /* Matikan audio lama tanpa trigger error handler */
   _ignoreErrors=true;
   _audio.pause();
-  _audio.src='';
+  _audio.removeAttribute('src');
   _audio.load();
 
   resolveAudio(t).then(function(src){
     if(_playId!==myId) return;
-    _ignoreErrors=true;
+    _ignoreErrors=false;
     _audio.src=src;
     _audio.load();
-    /* Tunggu canplaythrough sebelum play supaya tidak langsung error */
-    var onReady=function(){
-      _audio.removeEventListener('canplay',onReady);
+    var p=_audio.play();
+    if(p&&p.catch) p.catch(function(e){
       if(_playId!==myId) return;
-      _ignoreErrors=false;
-      _audio.play().catch(function(e){
-        if(_playId!==myId) return;
-        setLoadingBtn(false);
-      });
-    };
-    _audio.addEventListener('canplay',onReady);
-    /* Fallback: kalau canplay tidak muncul dalam 5 detik, coba play paksa */
-    setTimeout(function(){
-      if(_playId!==myId) return;
-      _audio.removeEventListener('canplay',onReady);
-      _ignoreErrors=false;
-      if(_audio.readyState>=2) _audio.play().catch(function(){});
-    },5000);
+      /* Autoplay blocked — user perlu gesture, tunjukkan tombol play */
+      setLoadingBtn(false);
+    });
   }).catch(function(e){
     if(_playId!==myId) return;
     _ignoreErrors=false;
     setLoadingBtn(false);
-    /* Jangan auto-skip — tunjukkan error, biarkan user yang decide */
     var ar=$i('mpbArtist');
-    if(ar) ar.textContent='Gagal memuat — coba lagi';
-    console.warn('resolve failed',e);
+    if(ar) ar.textContent='Gagal memuat — tap play lagi';
   });
 }
 
