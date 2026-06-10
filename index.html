@@ -5457,28 +5457,21 @@ async function apiGet(type, q){
 
 /* Resolve audio URL (YouTube full track) saat tap play */
 var _resolveCache={}; /* cache by track id */
-var _resolveAbort=null; /* abort controller untuk request sebelumnya */
 
 async function resolveAudio(t){
-  /* Kalau sudah punya audioUrl yang valid, pakai langsung */
   if(t.audioUrl) return t.audioUrl;
-  /* Cek cache */
-  if(_resolveCache[t.id]) { t.audioUrl=_resolveCache[t.id]; return t.audioUrl; }
+  if(_resolveCache[t.id]){ t.audioUrl=_resolveCache[t.id]; return t.audioUrl; }
 
-  /* Batalkan resolve sebelumnya */
-  if(_resolveAbort){ try{_resolveAbort.abort();}catch(e){} }
-  _resolveAbort=new AbortController();
-  var sig=_resolveAbort.signal;
-
-  var r=await fetch('/api/music?type=resolve&q='+encodeURIComponent(t.ytQuery||t.title+' '+t.artist),
-                    {signal:sig});
+  var q=encodeURIComponent(t.ytQuery||t.title+' '+t.artist+' official audio');
+  var r=await fetch('/api/music?type=resolve&q='+q,{signal:AbortSignal.timeout(18000)});
   if(!r.ok) throw new Error('resolve '+r.status);
   var d=await r.json();
   if(!d.audioUrl) throw new Error('no audio');
-  var proxyUrl='/api/music?type=stream&url='+encodeURIComponent(d.audioUrl);
-  _resolveCache[t.id]=proxyUrl;
-  t.audioUrl=proxyUrl;
-  return proxyUrl;
+
+  /* Pakai URL langsung — tidak perlu proxy, browser bisa akses YouTube CDN */
+  _resolveCache[t.id]=d.audioUrl;
+  t.audioUrl=d.audioUrl;
+  return d.audioUrl;
 }
 
 /* ── Native Audio Event Handlers ── */
@@ -5495,8 +5488,14 @@ _audio.addEventListener('ended',function(){
 _audio.addEventListener('waiting',function(){setLoadingBtn(true);});
 _audio.addEventListener('canplay',function(){setLoadingBtn(false);});
 _audio.addEventListener('error',function(){
+  /* Abaikan error kalau src kosong (lagi loading lagu baru) */
+  if(!_audio.src || _audio.src===window.location.href) return;
   setLoadingBtn(false);
-  /* URL error — skip ke lagu berikutnya */
+  var qi=S.i;
+  if(qi<0||qi>=S.q.length) return;
+  var t=S.q[qi];
+  /* Reset cache supaya resolve ulang lain kali */
+  if(t){ delete _resolveCache[t.id]; t.audioUrl=''; }
   S.skipCount=(S.skipCount||0)+1;
   if(S.skipCount>=S.q.length){
     S.skipCount=0;
@@ -5504,7 +5503,7 @@ _audio.addEventListener('error',function(){
     if(ar)ar.textContent='Tidak ada lagu yang bisa diputar';
     return;
   }
-  setTimeout(function(){play((S.i+1)%S.q.length);},400);
+  setTimeout(function(){play((qi+1)%S.q.length);},800);
 });
 
 function setLoadingBtn(on){
