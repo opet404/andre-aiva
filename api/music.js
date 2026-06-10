@@ -1,46 +1,24 @@
-/* AIVA Music API v10
-   Trending : lagu Indo Gen Z top — hardcoded queries spesifik per lagu
-   Search   : Deezer
-   Resolve  : YouTube Innertube ANDROID_TESTSUITE (paling reliable, no cipher)
-   Stream   : 302 redirect ke YouTube CDN
-*/
+/* AIVA Music API v11 */
 
 const DEEZER    = 'https://api.deezer.com';
 const INNERTUBE = 'https://www.youtube.com/youtubei/v1';
-const YT_KEY    = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 
-/* Lagu Indo Gen Z yang top — query spesifik supaya Deezer return hasil tepat */
 const INDO_TOP = [
-  'Hindia Secukupnya',
-  'Hindia Besok Mungkin Kita Sampai',
-  'The Panturas Mabuk Laut',
-  'The Panturas Terlalu Tinggi',
-  'Feast Berita Kehilangan',
-  'Feast Membasuh',
-  'Barasuara Taifun',
-  'Barasuara Api dan Lentera',
+  'Hindia Secukupnya','Hindia Besok Mungkin Kita Sampai',
+  'The Panturas Mabuk Laut','The Panturas Terlalu Tinggi',
+  'Feast Berita Kehilangan','Feast Membasuh',
+  'Barasuara Taifun','Barasuara Api dan Lentera',
   'Efek Rumah Kaca Cinta Melulu',
-  'Efek Rumah Kaca Jatuh Cinta Itu Biasa Saja',
-  'Pamungkas To The Bone',
-  'Pamungkas I Love You But I Love Me More',
+  'Pamungkas To The Bone','Pamungkas I Love You But I Love Me More',
   'Reality Club In Your Arms Instead',
-  'Reality Club Closer',
-  'Fourtwnty Zona Nyaman',
-  'Fourtwnty Aku Bukan Untukmu',
-  'Elephant Kind Someday',
-  'Mocca I Love You Anyway',
-  'Tulus Gajah',
-  'Tulus Sepatu',
+  'Fourtwnty Zona Nyaman','Fourtwnty Aku Bukan Untukmu',
+  'Elephant Kind Someday','Mocca I Love You Anyway',
+  'Tulus Gajah','Tulus Sepatu',
   'Raisa Teduh Bersama',
-  'Weird Genius ft Sara Fajira Lathi',
-  'Isyana Sarasvati Tetap Dalam Jiwa',
-  'Sheila on 7 Dan',
-  'Sheila on 7 Melompat Lebih Tinggi',
-  'Noah Separuh Aku',
-  'Padi Reborn Semua Tak Sama',
-  'Maliq D Essentials Terdiam Sepi',
-  'Afgan Jodoh Pasti Bertemu',
+  'Weird Genius Lathi','Isyana Sarasvati Tetap Dalam Jiwa',
+  'Sheila on 7 Dan','Noah Separuh Aku',
   'Yura Yunita Cinta Dan Rahasia',
+  'Maliq D Essentials Terdiam Sepi',
 ];
 
 function norm(t) {
@@ -68,51 +46,97 @@ async function deezerSearch(q, limit = 1) {
   } catch { return []; }
 }
 
-/* YouTube Innertube: ANDROID_TESTSUITE — tidak butuh signature decoding */
+/* Coba beberapa YouTube client sampai ada yang berhasil */
 async function ytGetAudio(videoId) {
-  const body = {
-    context: {
-      client: {
-        clientName: 'ANDROID_TESTSUITE',
-        clientVersion: '1.9',
-        androidSdkVersion: 30,
-        hl: 'id', gl: 'ID',
-      },
+  const clients = [
+    /* TV client — paling tidak kena restriction */
+    {
+      clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
+      clientVersion: '2.0',
+      clientScreen: 'EMBED',
+      cn: '85',
     },
-    videoId,
-  };
-  try {
-    const r = await fetch(`${INNERTUBE}/player?key=${YT_KEY}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'com.google.android.youtube/17.31.35 (Linux; U; Android 11)',
-        'X-YouTube-Client-Name': '30',
-        'X-YouTube-Client-Version': '1.9',
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(12000),
-    });
-    if (!r.ok) return null;
-    const d = await r.json();
-    if (d.playabilityStatus?.status !== 'OK') return null;
-    const formats = [
-      ...(d.streamingData?.adaptiveFormats || []),
-      ...(d.streamingData?.formats || []),
-    ].filter(f => f.mimeType?.startsWith('audio/') && f.url);
-    if (!formats.length) return null;
-    formats.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-    return formats[0].url;
-  } catch { return null; }
+    /* iOS client */
+    {
+      clientName: 'IOS',
+      clientVersion: '19.29.1',
+      deviceMake: 'Apple',
+      deviceModel: 'iPhone16,2',
+      osName: 'iPhone',
+      osVersion: '17.5.1.21F90',
+      cn: '5',
+    },
+    /* Web embedded */
+    {
+      clientName: 'WEB_EMBEDDED_PLAYER',
+      clientVersion: '1.20231215.01.00',
+      clientScreen: 'EMBED',
+      cn: '56',
+    },
+  ];
+
+  for (const c of clients) {
+    try {
+      const ctx = {
+        clientName:    c.clientName,
+        clientVersion: c.clientVersion,
+        hl: 'id', gl: 'ID',
+      };
+      if (c.clientScreen) ctx.clientScreen = c.clientScreen;
+      if (c.deviceMake)   ctx.deviceMake   = c.deviceMake;
+      if (c.deviceModel)  ctx.deviceModel  = c.deviceModel;
+      if (c.osName)       ctx.osName       = c.osName;
+      if (c.osVersion)    ctx.osVersion    = c.osVersion;
+
+      const r = await fetch(`${INNERTUBE}/player`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'X-YouTube-Client-Name': c.cn,
+          'X-YouTube-Client-Version': c.clientVersion,
+          'Origin': 'https://www.youtube.com',
+          'Referer': 'https://www.youtube.com/',
+        },
+        body: JSON.stringify({
+          context: { client: ctx },
+          videoId,
+          params: 'CgIQBg==',
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+
+      if (!r.ok) continue;
+      const d = await r.json();
+      if (d.playabilityStatus?.status !== 'OK') continue;
+
+      const formats = [
+        ...(d.streamingData?.adaptiveFormats || []),
+        ...(d.streamingData?.formats         || []),
+      ].filter(f => f.url && f.mimeType?.startsWith('audio/'));
+
+      if (!formats.length) continue;
+
+      /* Pilih opus atau mp4a, bitrate tertinggi */
+      const opus  = formats.filter(f => f.mimeType.includes('opus'));
+      const best  = (opus.length ? opus : formats)
+                    .sort((a,b) => (b.bitrate||0)-(a.bitrate||0))[0];
+      return best.url;
+    } catch { continue; }
+  }
+  return null;
 }
 
 async function ytSearch(query) {
   try {
-    const r = await fetch(`${INNERTUBE}/search?key=${YT_KEY}`, {
+    const r = await fetch(`${INNERTUBE}/search`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+      },
       body: JSON.stringify({
-        context: { client: { clientName: 'WEB', clientVersion: '2.20231121.08.00', hl: 'id', gl: 'ID' } },
+        context: { client: { clientName: 'WEB', clientVersion: '2.20240101', hl: 'id', gl: 'ID' } },
         query,
         params: 'EgIQAQ==',
       }),
@@ -129,17 +153,14 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const { type, q, url } = req.query;
 
-  /* ── Trending: lagu Indo Gen Z top ── */
+  /* ── Trending ── */
   if (type === 'trending') {
     try {
       const results = await Promise.allSettled(INDO_TOP.map(q => deezerSearch(q, 1)));
       const seen = new Set();
       const tracks = results
         .flatMap(r => r.status === 'fulfilled' ? r.value : [])
-        .filter(t => {
-          if (!t.id || seen.has(t.id)) return false;
-          seen.add(t.id); return true;
-        })
+        .filter(t => { if (!t.id || seen.has(t.id)) return false; seen.add(t.id); return true; })
         .slice(0, 30);
       return res.json({ tracks });
     } catch (e) {
@@ -157,14 +178,14 @@ export default async function handler(req, res) {
     }
   }
 
-  /* ── Resolve: YouTube search + audio URL ── */
+  /* ── Resolve ── */
   if (type === 'resolve' && q) {
     try {
       const videoId = await ytSearch(q);
       if (!videoId) return res.status(404).json({ error: 'Video not found' });
       const audioUrl = await ytGetAudio(videoId);
       if (!audioUrl) return res.status(404).json({ error: 'No audio stream' });
-      /* Return via stream endpoint supaya CORS aman */
+      /* Kembalikan sebagai stream URL via proxy */
       const streamUrl = `/api/music?type=stream&url=${encodeURIComponent(audioUrl)}`;
       return res.json({ audioUrl: streamUrl, videoId });
     } catch (e) {
@@ -172,21 +193,47 @@ export default async function handler(req, res) {
     }
   }
 
-  /* ── Stream: 302 redirect ke YouTube CDN ── */
-  /* <audio> tag tidak enforce CORS — redirect langsung work */
+  /* ── Stream proxy — pipe YouTube audio ke browser ── */
   if (type === 'stream' && url) {
     try {
       const src = decodeURIComponent(url);
-      if (!src.includes('googlevideo.com')) {
-        return res.status(403).end('Forbidden');
-      }
+      if (!src.includes('googlevideo.com')) return res.status(403).end('Forbidden');
+
+      const range    = req.headers['range'] || '';
+      const upstream = await fetch(src, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 11)',
+          'Accept':     '*/*',
+          ...(range ? { Range: range } : {}),
+        },
+        signal: AbortSignal.timeout(30000),
+      });
+
+      res.setHeader('Content-Type', upstream.headers.get('content-type') || 'audio/webm');
+      res.setHeader('Accept-Ranges', 'bytes');
       res.setHeader('Cache-Control', 'no-store');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      return res.redirect(302, src);
+      const cl = upstream.headers.get('content-length');
+      if (cl) res.setHeader('Content-Length', cl);
+      const cr = upstream.headers.get('content-range');
+      if (cr) res.setHeader('Content-Range', cr);
+
+      res.status(upstream.status);
+
+      /* Pipe stream */
+      const reader = upstream.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const ok = res.write(Buffer.from(value));
+        /* Backpressure */
+        if (!ok) await new Promise(r => res.once('drain', r));
+      }
+      return res.end();
     } catch (e) {
-      return res.status(500).end(String(e));
+      if (!res.headersSent) res.status(500).end(String(e));
+      else res.end();
     }
   }
 
-  res.status(400).json({ error: 'Invalid request' });
+  res.status(400).json({ error: 'Invalid' });
 }
