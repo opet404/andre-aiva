@@ -5432,7 +5432,7 @@ function $i(id){return document.getElementById(id);}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function fmt(s){if(!s||isNaN(s))return'0:00';var m=Math.floor(s/60),sec=Math.floor(s%60);return m+':'+(sec<10?'0':'')+sec;}
 
-/* ── Music API via Vercel proxy (/api/music) ── */
+/* ── Music API ── */
 function normTrack(t){
   return {
     id:       String(t.id),
@@ -5441,8 +5441,8 @@ function normTrack(t){
     album:    t.album    || '',
     cover:    t.cover    || '',
     duration: t.duration || 0,
-    audioUrl: '',                /* diisi saat play via resolve */
-    ytQuery:  t.ytQuery  || (t.title+' '+(t.artist||'')+' official audio'),
+    audioUrl: '',
+    ytQuery:  t.ytQuery  || (t.title+' '+t.artist),
   };
 }
 
@@ -5455,55 +5455,54 @@ async function apiGet(type, q){
   return d;
 }
 
-/* Resolve audio URL (YouTube full track) saat tap play */
-var _resolveCache={}; /* cache by track id */
+/* ── Resolve cache ── */
+var _resolveCache={};
 
 async function resolveAudio(t){
   if(t.audioUrl) return t.audioUrl;
-  if(_resolveCache[t.id]){ t.audioUrl=_resolveCache[t.id]; return t.audioUrl; }
-
-  var q=encodeURIComponent(t.ytQuery||t.title+' '+t.artist+' official audio');
-  var r=await fetch('/api/music?type=resolve&q='+q,{signal:AbortSignal.timeout(18000)});
+  if(_resolveCache[t.id]) return _resolveCache[t.id];
+  var q=encodeURIComponent(t.ytQuery||t.title+' '+t.artist);
+  var r=await fetch('/api/music?type=resolve&q='+q,{signal:AbortSignal.timeout(20000)});
   if(!r.ok) throw new Error('resolve '+r.status);
   var d=await r.json();
   if(!d.audioUrl) throw new Error('no audio');
-
-  /* Pakai URL langsung — tidak perlu proxy, browser bisa akses YouTube CDN */
   _resolveCache[t.id]=d.audioUrl;
   t.audioUrl=d.audioUrl;
   return d.audioUrl;
 }
 
-/* ── Native Audio Event Handlers ── */
+/* ── Native HTML5 Audio ── */
+var _ignoreErrors=false; /* flag: abaikan error saat ganti lagu */
+
 _audio.addEventListener('playing',function(){
-  S.playing=true;updPlayBtn();updAllUI();startTick();
+  _ignoreErrors=false;
+  S.playing=true; updPlayBtn(); updAllUI(); startTick();
 });
 _audio.addEventListener('pause',function(){
-  S.playing=false;updPlayBtn();updAllUI();stopTick();
+  S.playing=false; updPlayBtn(); updAllUI(); stopTick();
 });
 _audio.addEventListener('ended',function(){
-  stopTick();S.playing=false;
-  S.repeat?_audio.play().catch(function(){}):musicNext();
+  stopTick(); S.playing=false;
+  S.repeat ? _audio.play().catch(function(){}) : musicNext();
 });
-_audio.addEventListener('waiting',function(){setLoadingBtn(true);});
-_audio.addEventListener('canplay',function(){setLoadingBtn(false);});
+_audio.addEventListener('waiting',function(){ setLoadingBtn(true); });
+_audio.addEventListener('canplay',function(){ setLoadingBtn(false); });
 _audio.addEventListener('error',function(){
-  /* Abaikan error kalau src kosong (lagi loading lagu baru) */
+  if(_ignoreErrors) return; /* sedang ganti lagu, abaikan */
   if(!_audio.src || _audio.src===window.location.href) return;
   setLoadingBtn(false);
   var qi=S.i;
-  if(qi<0||qi>=S.q.length) return;
+  if(qi<0 || qi>=S.q.length) return;
   var t=S.q[qi];
-  /* Reset cache supaya resolve ulang lain kali */
   if(t){ delete _resolveCache[t.id]; t.audioUrl=''; }
   S.skipCount=(S.skipCount||0)+1;
   if(S.skipCount>=S.q.length){
     S.skipCount=0;
     var ar=$i('mpbArtist');
-    if(ar)ar.textContent='Tidak ada lagu yang bisa diputar';
+    if(ar) ar.textContent='Tidak ada lagu yang bisa diputar';
     return;
   }
-  setTimeout(function(){play((qi+1)%S.q.length);},800);
+  setTimeout(function(){ play((qi+1)%S.q.length); }, 1000);
 });
 
 function setLoadingBtn(on){
@@ -5688,37 +5687,57 @@ function setTrendingVisible(show){
     .forEach(function(el){if(el)el.style.display=show?'':'none';});
 }
 
-/* ── Play engine (native HTML5 Audio) ── */
-var _playId=0; /* increment setiap play() — batalkan resolve lama */
+/* ── Play engine ── */
+var _playId=0;
 
 function play(qi){
-  if(qi<0||qi>=S.q.length)return;
+  if(qi<0||qi>=S.q.length) return;
   var t=S.q[qi];
   var myId=++_playId;
   S.i=qi;
   S.playing=false;
+  S.skipCount=0;
   updPlayerBar(t);
   updAllUI();
   setLoadingBtn(true);
+
+  /* Matikan audio lama tanpa trigger error handler */
+  _ignoreErrors=true;
   _audio.pause();
   _audio.src='';
+  _audio.load();
 
   resolveAudio(t).then(function(src){
-    if(_playId!==myId) return; /* user sudah ganti lagu, abaikan */
+    if(_playId!==myId) return;
+    _ignoreErrors=true;
     _audio.src=src;
     _audio.load();
-    return _audio.play();
-  }).catch(function(){
+    /* Tunggu canplaythrough sebelum play supaya tidak langsung error */
+    var onReady=function(){
+      _audio.removeEventListener('canplay',onReady);
+      if(_playId!==myId) return;
+      _ignoreErrors=false;
+      _audio.play().catch(function(e){
+        if(_playId!==myId) return;
+        setLoadingBtn(false);
+      });
+    };
+    _audio.addEventListener('canplay',onReady);
+    /* Fallback: kalau canplay tidak muncul dalam 5 detik, coba play paksa */
+    setTimeout(function(){
+      if(_playId!==myId) return;
+      _audio.removeEventListener('canplay',onReady);
+      _ignoreErrors=false;
+      if(_audio.readyState>=2) _audio.play().catch(function(){});
+    },5000);
+  }).catch(function(e){
     if(_playId!==myId) return;
+    _ignoreErrors=false;
     setLoadingBtn(false);
-    S.skipCount=(S.skipCount||0)+1;
-    if(S.skipCount<S.q.length){
-      setTimeout(function(){if(_playId===myId)play((qi+1)%S.q.length);},800);
-    } else {
-      S.skipCount=0;
-      var ar=$i('mpbArtist');
-      if(ar)ar.textContent='Gagal memutar lagu';
-    }
+    /* Jangan auto-skip — tunjukkan error, biarkan user yang decide */
+    var ar=$i('mpbArtist');
+    if(ar) ar.textContent='Gagal memuat — coba lagi';
+    console.warn('resolve failed',e);
   });
 }
 
