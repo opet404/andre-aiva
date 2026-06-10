@@ -5442,7 +5442,7 @@ function normTrack(t){
     cover:    t.cover    || '',
     duration: t.duration || 0,
     audioUrl: t.audioUrl || '',
-    ytQuery:  t.ytQuery  || (t.title+' '+t.artist),
+    ytQuery:  t.ytQuery  || (t.title+' '+t.artist+' audio'),
   };
 }
 
@@ -5455,8 +5455,23 @@ async function apiGet(type, q){
   return d;
 }
 
+/* ── Resolve: dapat full track URL dari YouTube ── */
+var _cache={};
+async function resolveAudio(t){
+  if(t.audioUrl) return t.audioUrl;
+  if(_cache[t.id]) return _cache[t.id];
+  var q=encodeURIComponent(t.ytQuery||t.title+' '+t.artist);
+  var r=await fetch('/api/music?type=resolve&q='+q,{signal:AbortSignal.timeout(22000)});
+  if(!r.ok) throw new Error('resolve '+r.status);
+  var d=await r.json();
+  if(!d.audioUrl) throw new Error('no audio');
+  _cache[t.id]=d.audioUrl;
+  t.audioUrl=d.audioUrl;
+  return d.audioUrl;
+}
+
 /* ── Native HTML5 Audio ── */
-var _ignoreErrors=false; /* flag: abaikan error saat ganti lagu */
+var _ignoreErrors=false;
 
 _audio.addEventListener('playing',function(){
   _ignoreErrors=false;
@@ -5472,21 +5487,15 @@ _audio.addEventListener('ended',function(){
 _audio.addEventListener('waiting',function(){ setLoadingBtn(true); });
 _audio.addEventListener('canplay',function(){ setLoadingBtn(false); });
 _audio.addEventListener('error',function(){
-  if(_ignoreErrors) return; /* sedang ganti lagu, abaikan */
+  if(_ignoreErrors) return;
   if(!_audio.src || _audio.src===window.location.href) return;
   setLoadingBtn(false);
-  var qi=S.i;
-  if(qi<0 || qi>=S.q.length) return;
-  var t=S.q[qi];
-  if(t){ delete _resolveCache[t.id]; t.audioUrl=''; }
-  S.skipCount=(S.skipCount||0)+1;
-  if(S.skipCount>=S.q.length){
-    S.skipCount=0;
-    var ar=$i('mpbArtist');
-    if(ar) ar.textContent='Tidak ada lagu yang bisa diputar';
-    return;
-  }
-  setTimeout(function(){ play((qi+1)%S.q.length); }, 1000);
+  /* Hapus cache supaya resolve ulang */
+  var t=S.q[S.i];
+  if(t){ delete _cache[t.id]; t.audioUrl=''; }
+  /* Tampilkan pesan — jangan auto-skip */
+  var ar=$i('mpbArtist');
+  if(ar) ar.textContent=(t?t.artist:'')+'  ·  Tap play untuk coba lagi';
 });
 
 function setLoadingBtn(on){
@@ -5680,33 +5689,32 @@ function play(qi){
   var myId=++_playId;
   S.i=qi;
   S.playing=false;
-  S.skipCount=0;
   updPlayerBar(t);
   updAllUI();
-
-  if(!t.audioUrl){
-    var ar=$i('mpbArtist');
-    if(ar) ar.textContent='Tidak ada audio';
-    return;
-  }
-
   setLoadingBtn(true);
+
+  /* Stop audio lama tanpa trigger error */
   _ignoreErrors=true;
   _audio.pause();
   _audio.removeAttribute('src');
   _audio.load();
 
-  /* Set src dan play langsung — audioUrl sudah siap dari server */
-  setTimeout(function(){
+  resolveAudio(t).then(function(src){
     if(_playId!==myId) return;
-    _ignoreErrors=false;
-    _audio.src=t.audioUrl;
+    _audio.src=src;
     _audio.load();
-    _audio.play().catch(function(){
-      if(_playId!==myId) return;
+    _ignoreErrors=false;
+    return _audio.play().catch(function(){
+      /* Autoplay blocked — OK, user bisa tap play */
       setLoadingBtn(false);
     });
-  },50);
+  }).catch(function(){
+    if(_playId!==myId) return;
+    _ignoreErrors=false;
+    setLoadingBtn(false);
+    var ar=$i('mpbArtist');
+    if(ar) ar.textContent='Gagal memuat — tap play lagi';
+  });
 }
 
 window.musicPlayHome=function(i){S.q=S.homeQ;play(i);};
@@ -5827,13 +5835,35 @@ document.addEventListener('DOMContentLoaded',function(){
     });
   }
 });
-/* ── MediaSession refresh saat tab hidden ── */
+/* ── Background play + notifikasi lock screen ── */
+
+/* Cegah browser suspend audio saat layar mati / app di-minimize */
+var _wakeLock=null;
+async function requestWakeLock(){
+  try{
+    if('wakeLock' in navigator){
+      _wakeLock=await navigator.wakeLock.request('screen');
+      _wakeLock.addEventListener('release',function(){_wakeLock=null;});
+    }
+  }catch(e){}
+}
+
+/* Saat tab jadi visible lagi, re-request wake lock dan refresh notif */
 document.addEventListener('visibilitychange',function(){
-  if(document.hidden&&S.playing&&S.q[S.i]){
-    /* Refresh notifikasi lock screen saat app di-minimize */
-    updateMediaSession(S.q[S.i]);
+  if(!document.hidden){
+    if(S.playing) requestWakeLock();
+  } else {
+    /* Tab hidden — refresh MediaSession supaya notif muncul di lock screen */
+    if(S.playing&&S.q[S.i]) updateMediaSession(S.q[S.i]);
   }
 });
+
+/* Request wake lock saat mulai play */
+var _origStartTick2=startTick;
+startTick=function(){
+  _origStartTick2.apply(this,arguments);
+  requestWakeLock();
+};
 
 })();
 </script>
